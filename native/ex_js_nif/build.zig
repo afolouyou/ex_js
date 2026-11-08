@@ -94,6 +94,8 @@ pub fn build(b: *std.Build) !void {
     });
 
     // Boehm-Demers-Weiser GC, used by Kiesel's runtime.
+    // bdwgc_zig is a lazy dependency: the first configure pass returns null,
+    // Zig fetches it and re-runs build() with it available.
     const cflags_extra: []const u8 = blk: {
         var cflags: std.ArrayList([]const u8) = .empty;
         defer cflags.deinit(b.allocator);
@@ -104,7 +106,7 @@ pub fn build(b: *std.Build) !void {
         break :blk try std.mem.join(b.allocator, " ", cflags.items);
     };
 
-    const bdwgc = b.lazyDependency("bdwgc_zig", .{
+    if (b.lazyDependency("bdwgc_zig", .{
         .target = target,
         .optimize = optimize,
         .linkage = .static,
@@ -114,12 +116,9 @@ pub fn build(b: *std.Build) !void {
         .enable_large_config = true,
         .enable_gc_dump = false,
         .enable_dynamic_pointer_mask = enable_nan_boxing,
-    }) orelse {
-        std.debug.print("Error: bdwgc_zig dependency was not fetched.\n", .{});
-        std.process.exit(1);
-    };
-
-    kiesel_module.addImport("bdwgc", bdwgc.module("bdwgc"));
+    })) |bdwgc| {
+        kiesel_module.addImport("bdwgc", bdwgc.module("bdwgc"));
+    }
 
     // Translate erl_nif.h to Zig (Zig 0.17 removed @cImport).
     // `erl_include` is a relative symlink to the Erlang include directory,
