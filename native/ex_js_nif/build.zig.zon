@@ -1,0 +1,38 @@
+.{
+    .name = .ex_js_nif,
+    .version = "0.1.0",
+    .fingerprint = 0x8c019840b7517673,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .parser_toolkit = .{
+            .url = "git+https://github.com/ikskuh/parser-toolkit#cc3977376a7bf0eb6f203ae5c00e8cea6f9d6600",
+            .hash = "parser_toolkit-0.1.0-baYGPdpDEwBQQ2__YEalqGB09TAjP7vpoe2DFkwg6mRa",
+        },
+        .stackinfo = .{
+            .url = "git+https://codeberg.org/linus/zig-stackinfo#1f9d54a06ed8a03818caf783bfa95f1f1d2bc6c9",
+            .hash = "stackinfo-0.1.0-NZ2qTucnAABODw8nCyXjGC77tFZxKkZQv61nyG18HVeC",
+        },
+        .unicode_id = .{
+            .url = "git+https://codeberg.org/linus/unicode-id#4a7a1860bfb110f65d236e4302bed2d16aacc4a8",
+            .hash = "unicode_id-0.0.1-u-LDL7CIAQCi80rzvZh3z4MMLCnSatOYDssbHgzy3U86",
+        },
+        .quickjs = .{
+            .url = "git+https://github.com/bellard/quickjs#535a7c250ff4a577ec36c3e103daab6dadeea650",
+            .hash = "N-V-__8AANeKMgAJMmyOafYQo7YrC99SZlSbL6khjXSwI6Nd",
+        },
+        .translate_c = .{
+            .url = "git+https://codeberg.org/ziglang/translate-c?ref=2.0.0#0da7a16c3235b935b82421646076e0657cda21f6",
+            .hash = "translate_c-2.0.0-Q_BUWltOBwA0229IE8wwSxxGzOxyRso3hvcb1nN8oJX_",
+        },
+        .bdwgc_zig = .{
+            .url = "git+https://github.com/bdwgc/bdwgc-zig#a172686a2da78ad30f21f4ff1f11e9576a3ecf5f",
+            .hash = "bdwgc_zig-0.1.0-ffcEgYp7AABR90M8sophVIu5c4eoaaJIdP3nnWOkoJa2",
+            .lazy = true,
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src/",
+    },
+}

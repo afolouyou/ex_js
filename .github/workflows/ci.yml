@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.19"
+
+      - name: Install Zig 0.17.1
+        run: |
+          curl -fsSL -o zig.tar.xz https://ziglang.org/download/0.17.1/zig-x86_64-linux-0.17.1.tar.xz
+          tar xf zig.tar.xz
+          sudo mv zig-x86_64-linux-0.17.1 /opt/zig
+          echo "/opt/zig" >> "$GITHUB_PATH"
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Check formatting
+        run: mix format --check-formatted
+
+      - name: Compile
+        run: mix compile --warnings-as-errors
+
+      - name: Test
+        run: mix test --include stress
+
+      - name: Consumer smoke test
+        run: |
+          mkdir -p /tmp/ex_js_consumer
+          cd /tmp/ex_js_consumer
+
+          cat > mix.exs <<EOF
+          defmodule Consumer.MixProject do
+            use Mix.Project
+
+            def project do
+              [
+                app: :consumer,
+                version: "0.1.0",
+                elixir: "~> 1.19",
+                deps: [{:ex_js, path: "$GITHUB_WORKSPACE"}]
+              ]
+            end
+
+            def application, do: [extra_applications: [:logger]]
+          end
+          EOF
+
+          mix deps.get
+          mix run -e '
+          {:ok, ctx} = ExJS.new()
+          :ok = ExJS.set(ctx, "config", %{enabled: true})
+          {:ok, %{"enabled" => true}} = ExJS.get(ctx, "config")
+          {:ok, _} = ExJS.eval(ctx, "function sum(a, b) { return a + b }")
+          {:ok, 42} = ExJS.call(ctx, "sum", [20, 22])
+          :ok = ExJS.close(ctx)
+          IO.puts("consumer ok")
+          '

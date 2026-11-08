@@ -1,0 +1,3321 @@
+.{
+    // Empty script
+    .{
+        .source = "",
+        .expected_result = .{ .value = null },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..0  ]                       return none
+        \\
+        \\Bytecode (test)
+        \\   0: 7a ff ff                         return
+        \\
+        ,
+    },
+
+    // Simple expression statement
+    .{
+        .source =
+        \\42;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 42 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 42
+        \\  %1: [  1..1  ]                       return %0
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 2a                      load_number_i8 r0, 42
+        \\   4: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // Dead code elimination
+    .{
+        .source =
+        \\1;
+        \\while (true) {
+        \\  2;
+        \\  break;
+        \\  3;
+        \\}
+        \\4;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 4 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..0  ] dead                  number 1
+        \\  %1: [  1..2  ]                       undefined
+        \\  %2: [  2..2  ]                       br %3, %1
+        \\  %3: [  3..12 ]                       label
+        \\  %4: [  4..5  ]                       true
+        \\  %5: [  5..5  ]                       br_cond %4, %6, %11
+        \\  %6: [  6..6  ]                       label
+        \\  %7: [  7..8  ]                       number 2
+        \\  %8: [  8..8  ]                       br %13, %7
+        \\  %9: [  9..10 ] dead                  number 3
+        \\ %10: [ 10..10 ] dead                  br %3, %9
+        \\ %11: [ 11..11 ]                       label
+        \\ %12: [ 12..12 ]                       br %13, %3
+        \\ %13: [ 13..13 ]                       label
+        \\ %14: [ 14..15 ]                       number 4
+        \\ %15: [ 15..15 ]                       return %14
+        \\
+        \\Bytecode (test)
+        \\   0: 03 00 00                         load_undefined r0
+        \\   3: 05 01 00                         load_true r1
+        \\   6: 01 01 00 05 00 00 00             jump_if_true r1, 5
+        \\  13: 00 09 00 00 00                   jump 9
+        \\  18: 07 01 00 02                      load_number_i8 r1, 2
+        \\  22: 00 00 00 00 00                   jump 0
+        \\  27: 07 00 00 04                      load_number_i8 r0, 4
+        \\  31: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // Constant folding and propagation
+    .{
+        .source =
+        \\if (null ?? "foo") {
+        \\  do {
+        \\    1 + 2 + 3;
+        \\  } while (0);
+        \\}
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 6 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..9  ]                       label
+        \\  %1: [  1..1  ] dead                  undefined
+        \\  %2: [  2..3  ]                       number 6
+        \\  %3: [  3..3  ]                       br %4, %2
+        \\  %4: [  4..11 ]                       label
+        \\  %5: [  5..6  ]                       number 0
+        \\  %6: [  6..7  ]                       to_boolean %5
+        \\  %7: [  7..7  ]                       br_cond %6, %8, %10
+        \\  %8: [  8..8  ]                       label
+        \\  %9: [  9..9  ]                       br %0, %4
+        \\ %10: [ 10..10 ]                       label
+        \\ %11: [ 11..11 ]                       br %12, %4
+        \\ %12: [ 12..13 ]                       label
+        \\ %13: [ 13..13 ]                       return %12
+        \\
+        \\Bytecode (test)
+        \\   0: 07 01 00 06                      load_number_i8 r1, 6
+        \\   4: 07 02 00 00                      load_number_i8 r2, 0
+        \\   8: 1d 03 00 02 00                   to_boolean r3, r2
+        \\  13: 01 03 00 05 00 00 00             jump_if_true r3, 5
+        \\  20: 00 0a 00 00 00                   jump 10
+        \\  25: 0c 00 00 01 00                   move r0, r1
+        \\  30: 00 dd ff ff ff                   jump -35
+        \\  35: 0c 00 00 01 00                   move r0, r1
+        \\  40: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // Array literal
+    .{
+        .source =
+        \\[1, , [2, 3], {x: 4}];
+        \\
+        ,
+        .expected_result = .ignore,
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..14 ]                       create_array 4
+        \\  %1: [  1..2  ]                       number 1
+        \\  %2: [  2..2  ]                       array_push %0, %1
+        \\  %3: [  3..3  ]                       array_push %0, none
+        \\  %4: [  4..9  ]                       create_array 2
+        \\  %5: [  5..6  ]                       number 2
+        \\  %6: [  6..6  ]                       array_push %4, %5
+        \\  %7: [  7..8  ]                       number 3
+        \\  %8: [  8..8  ]                       array_push %4, %7
+        \\  %9: [  9..9  ]                       array_push %0, %4
+        \\ %10: [ 10..13 ]                       create_object 1
+        \\ %11: [ 11..12 ]                       number 4
+        \\ %12: [ 12..12 ]                       object_set %10, @0 ("x"), %11
+        \\ %13: [ 13..13 ]                       array_push %0, %10
+        \\ %14: [ 14..14 ]                       return %0
+        \\
+        \\Bytecode (test)
+        \\   0: 0d 00 00 04 00 00 00             create_array r0, 4
+        \\   7: 07 01 00 01                      load_number_i8 r1, 1
+        \\  11: 10 00 00 01 00 00 00 00 00       array_set r0, r1, 0
+        \\  20: 0d 01 00 02 00 00 00             create_array r1, 2
+        \\  27: 07 02 00 02                      load_number_i8 r2, 2
+        \\  31: 10 01 00 02 00 00 00 00 00       array_set r1, r2, 0
+        \\  40: 07 02 00 03                      load_number_i8 r2, 3
+        \\  44: 10 01 00 02 00 01 00 00 00       array_set r1, r2, 1
+        \\  53: 10 00 00 01 00 02 00 00 00       array_set r0, r1, 2
+        \\  62: 12 01 00 01 00 00 00             create_object r1, 1
+        \\  69: 07 02 00 04                      load_number_i8 r2, 4
+        \\  73: 13 01 00 00 00 00 00 02 00       object_set r1, @0 ("x"), r2
+        \\  82: 10 00 00 01 00 03 00 00 00       array_set r0, r1, 3
+        \\  91: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // Object literal
+    .{
+        .source =
+        \\var a = 1;
+        \\var o = {c: 2};
+        \\var p = {};
+        \\({a, [2]: "two", b: 3, ...o, __proto__: p});
+        \\
+        ,
+        .expected_result = .ignore,
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 1
+        \\  %1: [  1..1  ]                       set_binding @0 ("a"), %0
+        \\  %2: [  2..5  ]                       create_object 1
+        \\  %3: [  3..4  ]                       number 2
+        \\  %4: [  4..4  ]                       object_set %2, @1 ("c"), %3
+        \\  %5: [  5..5  ]                       set_binding @2 ("o"), %2
+        \\  %6: [  6..7  ]                       create_object 0
+        \\  %7: [  7..7  ]                       set_binding @3 ("p"), %6
+        \\  %8: [  8..20 ]                       create_object 3
+        \\  %9: [  9..10 ]                       get_binding @0 ("a")
+        \\ %10: [ 10..10 ]                       object_set %8, @0 ("a"), %9
+        \\ %11: [ 11..13 ]                       number 2
+        \\ %12: [ 12..13 ]                       string @4 ("two")
+        \\ %13: [ 13..13 ]                       object_set_computed %8, %11, %12
+        \\ %14: [ 14..15 ]                       number 3
+        \\ %15: [ 15..15 ]                       object_set %8, @5 ("b"), %14
+        \\ %16: [ 16..17 ]                       get_binding @2 ("o")
+        \\ %17: [ 17..17 ]                       object_spread %8, %16
+        \\ %18: [ 18..19 ]                       get_binding @3 ("p")
+        \\ %19: [ 19..19 ]                       object_set_prototype %8, %18
+        \\ %20: [ 20..20 ]                       return %8
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 01                      load_number_i8 r0, 1
+        \\   4: 50 00 00 00 00 00 00             set_binding @0 ("a"), r0
+        \\  11: 12 00 00 01 00 00 00             create_object r0, 1
+        \\  18: 07 01 00 02                      load_number_i8 r1, 2
+        \\  22: 13 00 00 01 00 00 00 01 00       object_set r0, @1 ("c"), r1
+        \\  31: 50 02 00 00 00 00 00             set_binding @2 ("o"), r0
+        \\  38: 12 00 00 00 00 00 00             create_object r0, 0
+        \\  45: 50 03 00 00 00 00 00             set_binding @3 ("p"), r0
+        \\  52: 12 00 00 03 00 00 00             create_object r0, 3
+        \\  59: 4b 01 00 00 00 00 00             get_binding r1, @0 ("a")
+        \\  66: 13 00 00 00 00 00 00 01 00       object_set r0, @0 ("a"), r1
+        \\  75: 07 01 00 02                      load_number_i8 r1, 2
+        \\  79: 0a 02 00 04 00 00 00             load_string r2, @4 ("two")
+        \\  86: 14 00 00 01 00 02 00             object_set_computed r0, r1, r2
+        \\  93: 07 01 00 03                      load_number_i8 r1, 3
+        \\  97: 13 00 00 05 00 00 00 01 00       object_set r0, @5 ("b"), r1
+        \\ 106: 4b 01 00 02 00 00 00             get_binding r1, @2 ("o")
+        \\ 113: 1a 00 00 01 00                   object_spread r0, r1
+        \\ 118: 4b 01 00 03 00 00 00             get_binding r1, @3 ("p")
+        \\ 125: 19 00 00 01 00                   object_set_prototype r0, r1
+        \\ 130: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // Regular expression literal
+    .{
+        .source =
+        \\/abc/gi;
+        \\
+        ,
+        .expected_result = .ignore,
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       create_reg_exp @0 ("abc"), @1 ("gi")
+        \\  %1: [  1..1  ]                       return %0
+        \\
+        \\Bytecode (test)
+        \\   0: 1b 00 00 00 00 00 00 01 00 00 00 create_reg_exp r0, @0 ("abc"), @1 ("gi")
+        \\  11: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // Variable statements
+    .{
+        .source =
+        \\var x = 1;
+        \\
+        ,
+        .expected_result = .{ .value = null },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 1
+        \\  %1: [  1..1  ]                       set_binding @0 ("x"), %0
+        \\  %2: [  2..2  ]                       return none
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 01                      load_number_i8 r0, 1
+        \\   4: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  11: 7a ff ff                         return
+        \\
+        ,
+    },
+    .{
+        .source =
+        \\var x = 10, y = 20;
+        \\x + y;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 30 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 10
+        \\  %1: [  1..1  ]                       set_binding @0 ("x"), %0
+        \\  %2: [  2..3  ]                       number 20
+        \\  %3: [  3..3  ]                       set_binding @1 ("y"), %2
+        \\  %4: [  4..6  ]                       get_binding @0 ("x")
+        \\  %5: [  5..6  ]                       get_binding @1 ("y")
+        \\  %6: [  6..7  ]                       add %4, %5
+        \\  %7: [  7..7  ]                       return %6
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 0a                      load_number_i8 r0, 10
+        \\   4: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  11: 07 00 00 14                      load_number_i8 r0, 20
+        \\  15: 50 01 00 00 00 00 00             set_binding @1 ("y"), r0
+        \\  22: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\  29: 4b 01 00 01 00 00 00             get_binding r1, @1 ("y")
+        \\  36: 2b 02 00 00 00 01 00             add r2, r0, r1
+        \\  43: 7a 02 00                         return r2
+        \\
+        ,
+    },
+
+    // Lexical declarations
+    .{
+        .source =
+        \\let a = 1;
+        \\{
+        \\  let a = 2;
+        \\}
+        \\a;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 1 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 1
+        \\  %1: [  1..1  ]                       initialize_binding @0 ("a"), %0
+        \\  %2: [  2..2  ]                       push_scope
+        \\  %3: [  3..3  ]                       create_mutable_binding @0 ("a")
+        \\  %4: [  4..5  ]                       number 2
+        \\  %5: [  5..5  ]                       initialize_binding @0 ("a"), %4
+        \\  %6: [  6..6  ]                       pop_scope
+        \\  %7: [  7..8  ]                       get_binding @0 ("a")
+        \\  %8: [  8..8  ]                       return %7
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 01                      load_number_i8 r0, 1
+        \\   4: 49 00 00 00 00 00 00             initialize_binding @0 ("a"), r0
+        \\  11: 42                               push_scope
+        \\  12: 47 00 00 00 00                   create_mutable_binding @0 ("a")
+        \\  17: 07 00 00 02                      load_number_i8 r0, 2
+        \\  21: 49 00 00 00 00 00 00             initialize_binding @0 ("a"), r0
+        \\  28: 45                               pop_scope
+        \\  29: 4b 00 00 00 00 00 00             get_binding r0, @0 ("a")
+        \\  36: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // Increment/decrement operators
+    .{
+        .source =
+        \\x = 5;
+        \\++x;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 6 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 5
+        \\  %1: [  1..1  ]                       set_binding @0 ("x"), %0
+        \\  %2: [  2..3  ]                       get_binding @0 ("x")
+        \\  %3: [  3..4  ]                       to_numeric %2
+        \\  %4: [  4..6  ]                       increment %3
+        \\  %5: [  5..5  ]                       set_binding @0 ("x"), %4
+        \\  %6: [  6..6  ]                       return %4
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 05                      load_number_i8 r0, 5
+        \\   4: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  11: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\  18: 1f 01 00 00 00                   to_numeric r1, r0
+        \\  23: 22 00 00 01 00                   increment r0, r1
+        \\  28: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  35: 7a 00 00                         return r0
+        \\
+        ,
+    },
+    .{
+        .source = "x = 5; x++;",
+        .expected_result = .{ .value = .{ .number = 5 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 5
+        \\  %1: [  1..1  ]                       set_binding @0 ("x"), %0
+        \\  %2: [  2..3  ]                       get_binding @0 ("x")
+        \\  %3: [  3..6  ]                       to_numeric %2
+        \\  %4: [  4..5  ]                       increment %3
+        \\  %5: [  5..5  ]                       set_binding @0 ("x"), %4
+        \\  %6: [  6..6  ]                       return %3
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 05                      load_number_i8 r0, 5
+        \\   4: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  11: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\  18: 1f 01 00 00 00                   to_numeric r1, r0
+        \\  23: 22 00 00 01 00                   increment r0, r1
+        \\  28: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  35: 7a 01 00                         return r1
+        \\
+        ,
+    },
+    .{
+        .source = "x = 10; --x;",
+        .expected_result = .{ .value = .{ .number = 9 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 10
+        \\  %1: [  1..1  ]                       set_binding @0 ("x"), %0
+        \\  %2: [  2..3  ]                       get_binding @0 ("x")
+        \\  %3: [  3..4  ]                       to_numeric %2
+        \\  %4: [  4..6  ]                       decrement %3
+        \\  %5: [  5..5  ]                       set_binding @0 ("x"), %4
+        \\  %6: [  6..6  ]                       return %4
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 0a                      load_number_i8 r0, 10
+        \\   4: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  11: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\  18: 1f 01 00 00 00                   to_numeric r1, r0
+        \\  23: 23 00 00 01 00                   decrement r0, r1
+        \\  28: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  35: 7a 00 00                         return r0
+        \\
+        ,
+    },
+    .{
+        .source = "x = 10; x--;",
+        .expected_result = .{ .value = .{ .number = 10 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 10
+        \\  %1: [  1..1  ]                       set_binding @0 ("x"), %0
+        \\  %2: [  2..3  ]                       get_binding @0 ("x")
+        \\  %3: [  3..6  ]                       to_numeric %2
+        \\  %4: [  4..5  ]                       decrement %3
+        \\  %5: [  5..5  ]                       set_binding @0 ("x"), %4
+        \\  %6: [  6..6  ]                       return %3
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 0a                      load_number_i8 r0, 10
+        \\   4: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  11: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\  18: 1f 01 00 00 00                   to_numeric r1, r0
+        \\  23: 23 00 00 01 00                   decrement r0, r1
+        \\  28: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  35: 7a 01 00                         return r1
+        \\
+        ,
+    },
+
+    // Logical expression
+    .{
+        .source =
+        \\false && doesnotexist;
+        \\true || doesnotexist;
+        \\1 ?? doesnotexist;
+        \\
+        \\var x = 0;
+        \\true && (x += 1);
+        \\false || (x += 2);
+        \\null ?? (x += 3);
+        \\x;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 6 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..0  ] dead                  false
+        \\  %1: [  1..1  ] dead                  true
+        \\  %2: [  2..2  ] dead                  number 1
+        \\  %3: [  3..4  ]                       number 0
+        \\  %4: [  4..4  ]                       set_binding @0 ("x"), %3
+        \\  %5: [  5..8  ]                       true
+        \\  %6: [  6..6  ]                       br_cond %5, %9, %7
+        \\  %7: [  7..7  ]                       label
+        \\  %8: [  8..8  ]                       br %15, %5
+        \\  %9: [  9..9  ]                       label
+        \\ %10: [ 10..12 ]                       get_binding @0 ("x")
+        \\ %11: [ 11..12 ]                       number 1
+        \\ %12: [ 12..13 ]                       add %10, %11
+        \\ %13: [ 13..14 ]                       set_binding @0 ("x"), %12
+        \\ %14: [ 14..14 ]                       br %15, %13
+        \\ %15: [ 15..15 ]                       label
+        \\ %16: [ 16..19 ]                       false
+        \\ %17: [ 17..17 ]                       br_cond %16, %18, %20
+        \\ %18: [ 18..18 ]                       label
+        \\ %19: [ 19..19 ]                       br %26, %16
+        \\ %20: [ 20..20 ]                       label
+        \\ %21: [ 21..23 ]                       get_binding @0 ("x")
+        \\ %22: [ 22..23 ]                       number 2
+        \\ %23: [ 23..24 ]                       add %21, %22
+        \\ %24: [ 24..25 ]                       set_binding @0 ("x"), %23
+        \\ %25: [ 25..25 ]                       br %26, %24
+        \\ %26: [ 26..26 ]                       label
+        \\ %27: [ 27..31 ]                       null
+        \\ %28: [ 28..29 ]                       is_nullish %27
+        \\ %29: [ 29..29 ]                       br_cond %28, %32, %30
+        \\ %30: [ 30..30 ]                       label
+        \\ %31: [ 31..31 ]                       br %38, %27
+        \\ %32: [ 32..32 ]                       label
+        \\ %33: [ 33..35 ]                       get_binding @0 ("x")
+        \\ %34: [ 34..35 ]                       number 3
+        \\ %35: [ 35..36 ]                       add %33, %34
+        \\ %36: [ 36..37 ]                       set_binding @0 ("x"), %35
+        \\ %37: [ 37..37 ]                       br %38, %36
+        \\ %38: [ 38..38 ]                       label
+        \\ %39: [ 39..40 ]                       get_binding @0 ("x")
+        \\ %40: [ 40..40 ]                       return %39
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 00                      load_number_i8 r0, 0
+        \\   4: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  11: 05 00 00                         load_true r0
+        \\  14: 01 00 00 05 00 00 00             jump_if_true r0, 5
+        \\  21: 00 23 00 00 00                   jump 35
+        \\  26: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\  33: 07 01 00 01                      load_number_i8 r1, 1
+        \\  37: 2b 02 00 00 00 01 00             add r2, r0, r1
+        \\  44: 50 00 00 00 00 02 00             set_binding @0 ("x"), r2
+        \\  51: 0c 00 00 02 00                   move r0, r2
+        \\  56: 00 00 00 00 00                   jump 0
+        \\  61: 06 00 00                         load_false r0
+        \\  64: 01 00 00 05 00 00 00             jump_if_true r0, 5
+        \\  71: 00 05 00 00 00                   jump 5
+        \\  76: 00 1e 00 00 00                   jump 30
+        \\  81: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\  88: 07 01 00 02                      load_number_i8 r1, 2
+        \\  92: 2b 02 00 00 00 01 00             add r2, r0, r1
+        \\  99: 50 00 00 00 00 02 00             set_binding @0 ("x"), r2
+        \\ 106: 0c 00 00 02 00                   move r0, r2
+        \\ 111: 04 00 00                         load_null r0
+        \\ 114: 27 01 00 00 00                   is_nullish r1, r0
+        \\ 119: 01 01 00 05 00 00 00             jump_if_true r1, 5
+        \\ 126: 00 23 00 00 00                   jump 35
+        \\ 131: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\ 138: 07 01 00 03                      load_number_i8 r1, 3
+        \\ 142: 2b 02 00 00 00 01 00             add r2, r0, r1
+        \\ 149: 50 00 00 00 00 02 00             set_binding @0 ("x"), r2
+        \\ 156: 0c 00 00 02 00                   move r0, r2
+        \\ 161: 00 00 00 00 00                   jump 0
+        \\ 166: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\ 173: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // Call expressions
+    .{
+        .source =
+        \\Math.random();
+        \\Number("1");
+        \\JSON.stringify({ foo: "bar" }, null, 2)
+        \\Math.max(1, 5, ...[3, 9], 2);
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 9 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..2  ]                       get_binding @0 ("Math")
+        \\  %1: [  1..2  ]                       get_property %0, @1 ("random")
+        \\  %2: [  2..2  ]                       call %1, %0, []
+        \\  %3: [  3..5  ]                       get_binding @2 ("Number")
+        \\  %4: [  4..5  ]                       string @3 ("1")
+        \\  %5: [  5..5  ]                       call %3, none, [%4]
+        \\  %6: [  6..13 ]                       get_binding @4 ("JSON")
+        \\  %7: [  7..13 ]                       get_property %6, @5 ("stringify")
+        \\  %8: [  8..13 ]                       create_object 1
+        \\  %9: [  9..10 ]                       string @7 ("bar")
+        \\ %10: [ 10..10 ]                       object_set %8, @6 ("foo"), %9
+        \\ %11: [ 11..13 ]                       null
+        \\ %12: [ 12..13 ]                       number 2
+        \\ %13: [ 13..13 ]                       call %7, %6, [%8, %11, %12]
+        \\ %14: [ 14..25 ]                       get_binding @0 ("Math")
+        \\ %15: [ 15..25 ]                       get_property %14, @8 ("max")
+        \\ %16: [ 16..25 ]                       number 1
+        \\ %17: [ 17..25 ]                       number 5
+        \\ %18: [ 18..23 ]                       create_array 2
+        \\ %19: [ 19..20 ]                       number 3
+        \\ %20: [ 20..20 ]                       array_push %18, %19
+        \\ %21: [ 21..22 ]                       number 9
+        \\ %22: [ 22..22 ]                       array_push %18, %21
+        \\ %23: [ 23..25 ]                       spread %18
+        \\ %24: [ 24..25 ]                       number 2
+        \\ %25: [ 25..26 ]                       call %15, %14, [%16, %17, %23, %24]
+        \\ %26: [ 26..26 ]                       return %25
+        \\
+        \\Bytecode (test)
+        \\   0: 4b 00 00 00 00 00 00             get_binding r0, @0 ("Math")
+        \\   7: 4c 01 00 00 00 01 00 00 00 00 00 get_property r1, r0, @1 ("random"), @0
+        \\  18: 65 02 00 01 00 00 00             call_property0 r2, r1, r0
+        \\  25: 4b 00 00 02 00 00 00             get_binding r0, @2 ("Number")
+        \\  32: 0a 01 00 03 00 00 00             load_string r1, @3 ("1")
+        \\  39: 62 02 00 00 00 01 00             call1 r2, r0, r1
+        \\  46: 4b 00 00 04 00 00 00             get_binding r0, @4 ("JSON")
+        \\  53: 4c 01 00 00 00 05 00 00 00 01 00 get_property r1, r0, @5 ("stringify"), @1
+        \\  64: 12 02 00 01 00 00 00             create_object r2, 1
+        \\  71: 0a 03 00 07 00 00 00             load_string r3, @7 ("bar")
+        \\  78: 13 02 00 06 00 00 00 03 00       object_set r2, @6 ("foo"), r3
+        \\  87: 04 03 00                         load_null r3
+        \\  90: 07 04 00 02                      load_number_i8 r4, 2
+        \\  94: 0d 07 00 00 00 00 00             create_array r7, 0
+        \\ 101: 0e 07 00 02 00                   array_push r7, r2
+        \\ 106: 0e 07 00 03 00                   array_push r7, r3
+        \\ 111: 0e 07 00 04 00                   array_push r7, r4
+        \\ 116: 64 05 00 01 00 00 00 07 00       call_property r5, r1, r0, r7
+        \\ 125: 4b 00 00 00 00 00 00             get_binding r0, @0 ("Math")
+        \\ 132: 4c 01 00 00 00 08 00 00 00 02 00 get_property r1, r0, @8 ("max"), @2
+        \\ 143: 07 02 00 01                      load_number_i8 r2, 1
+        \\ 147: 07 03 00 05                      load_number_i8 r3, 5
+        \\ 151: 0d 04 00 02 00 00 00             create_array r4, 2
+        \\ 158: 07 05 00 03                      load_number_i8 r5, 3
+        \\ 162: 10 04 00 05 00 00 00 00 00       array_set r4, r5, 0
+        \\ 171: 07 05 00 09                      load_number_i8 r5, 9
+        \\ 175: 10 04 00 05 00 01 00 00 00       array_set r4, r5, 1
+        \\ 184: 0c 05 00 04 00                   move r5, r4
+        \\ 189: 07 04 00 02                      load_number_i8 r4, 2
+        \\ 193: 0d 07 00 00 00 00 00             create_array r7, 0
+        \\ 200: 0e 07 00 02 00                   array_push r7, r2
+        \\ 205: 0e 07 00 03 00                   array_push r7, r3
+        \\ 210: 11 07 00 05 00                   array_spread r7, r5
+        \\ 215: 0e 07 00 04 00                   array_push r7, r4
+        \\ 220: 64 06 00 01 00 00 00 07 00       call_property r6, r1, r0, r7
+        \\ 229: 7a 06 00                         return r6
+        \\
+        ,
+    },
+
+    // Destructuring assignment
+    .{
+        .source =
+        \\const {a, ...rest} = {a: 1, b: 2, c: 3};
+        \\const {rest: {b, c}} = {rest};
+        \\const [d, e] = [4, 5];
+        \\const {f = 6} = {f: undefined};
+        \\const g = ({} = {g: 7}).g;
+        \\
+        \\const obj = {};
+        \\const arr = [];
+        \\({x: obj.a} = {x: 8});
+        \\[obj.b, obj.c, arr[0] = 11] = [9, 10];
+        \\
+        \\a + b + c + d + e + f + g + obj.a + obj.b + obj.c + arr[0];
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 66 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..10 ]                       create_object 3
+        \\  %1: [  1..2  ]                       number 1
+        \\  %2: [  2..2  ]                       object_set %0, @0 ("a"), %1
+        \\  %3: [  3..4  ]                       number 2
+        \\  %4: [  4..4  ]                       object_set %0, @1 ("b"), %3
+        \\  %5: [  5..6  ]                       number 3
+        \\  %6: [  6..6  ]                       object_set %0, @2 ("c"), %5
+        \\  %7: [  7..8  ]                       get_property %0, @0 ("a")
+        \\  %8: [  8..8  ]                       initialize_binding @0 ("a"), %7
+        \\  %9: [  9..10 ]                       string @0 ("a")
+        \\ %10: [ 10..11 ]                       copy_data_properties %0, [%9]
+        \\ %11: [ 11..11 ]                       initialize_binding @3 ("rest"), %10
+        \\ %12: [ 12..16 ]                       create_object 1
+        \\ %13: [ 13..14 ]                       get_binding @3 ("rest")
+        \\ %14: [ 14..14 ]                       object_set %12, @3 ("rest"), %13
+        \\ %15: [ 15..16 ]                       string @3 ("rest")
+        \\ %16: [ 16..17 ]                       get_property_computed %12, %15
+        \\ %17: [ 17..20 ]                       to_object %16
+        \\ %18: [ 18..19 ]                       get_property %17, @1 ("b")
+        \\ %19: [ 19..19 ]                       initialize_binding @1 ("b"), %18
+        \\ %20: [ 20..21 ]                       get_property %17, @2 ("c")
+        \\ %21: [ 21..21 ]                       initialize_binding @2 ("c"), %20
+        \\ %22: [ 22..27 ]                       create_array 2
+        \\ %23: [ 23..24 ]                       number 4
+        \\ %24: [ 24..24 ]                       array_push %22, %23
+        \\ %25: [ 25..26 ]                       number 5
+        \\ %26: [ 26..26 ]                       array_push %22, %25
+        \\ %27: [ 27..35 ]                       get_iterator %22
+        \\ %28: [ 28..29 ]                       iterator_step_value %27
+        \\ %29: [ 29..29 ]                       initialize_binding @4 ("d"), %28
+        \\ %30: [ 30..31 ]                       iterator_step_value %27
+        \\ %31: [ 31..31 ]                       initialize_binding @5 ("e"), %30
+        \\ %32: [ 32..33 ]                       iterator_is_done %27
+        \\ %33: [ 33..33 ]                       br_cond %32, %36, %34
+        \\ %34: [ 34..34 ]                       label
+        \\ %35: [ 35..35 ]                       iterator_close %27
+        \\ %36: [ 36..36 ]                       label
+        \\ %37: [ 37..40 ]                       create_object 1
+        \\ %38: [ 38..39 ]                       get_binding @7 ("undefined")
+        \\ %39: [ 39..39 ]                       object_set %37, @6 ("f"), %38
+        \\ %40: [ 40..48 ]                       get_property %37, @6 ("f")
+        \\ %41: [ 41..42 ]                       undefined
+        \\ %42: [ 42..43 ]                       eq_strict %40, %41
+        \\ %43: [ 43..43 ]                       br_cond %42, %44, %47
+        \\ %44: [ 44..44 ]                       label
+        \\ %45: [ 45..46 ]                       number 6
+        \\ %46: [ 46..46 ]                       br %49, %45
+        \\ %47: [ 47..47 ]                       label
+        \\ %48: [ 48..48 ]                       br %49, %40
+        \\ %49: [ 49..50 ]                       label
+        \\ %50: [ 50..50 ]                       initialize_binding @6 ("f"), %49
+        \\ %51: [ 51..54 ]                       create_object 1
+        \\ %52: [ 52..53 ]                       number 7
+        \\ %53: [ 53..53 ]                       object_set %51, @8 ("g"), %52
+        \\ %54: [ 54..55 ]                       get_property %51, @8 ("g")
+        \\ %55: [ 55..55 ]                       initialize_binding @8 ("g"), %54
+        \\ %56: [ 56..57 ]                       create_object 0
+        \\ %57: [ 57..57 ]                       initialize_binding @9 ("obj"), %56
+        \\ %58: [ 58..59 ]                       create_array 0
+        \\ %59: [ 59..59 ]                       initialize_binding @10 ("arr"), %58
+        \\ %60: [ 60..64 ]                       create_object 1
+        \\ %61: [ 61..62 ]                       number 8
+        \\ %62: [ 62..62 ]                       object_set %60, @11 ("x"), %61
+        \\ %63: [ 63..64 ]                       string @11 ("x")
+        \\ %64: [ 64..66 ]                       get_property_computed %60, %63
+        \\ %65: [ 65..66 ]                       get_binding @9 ("obj")
+        \\ %66: [ 66..66 ]                       set_property %65, @0 ("a"), %64
+        \\ %67: [ 67..72 ]                       create_array 2
+        \\ %68: [ 68..69 ]                       number 9
+        \\ %69: [ 69..69 ]                       array_push %67, %68
+        \\ %70: [ 70..71 ]                       number 10
+        \\ %71: [ 71..71 ]                       array_push %67, %70
+        \\ %72: [ 72..94 ]                       get_iterator %67
+        \\ %73: [ 73..75 ]                       iterator_step_value %72
+        \\ %74: [ 74..75 ]                       get_binding @9 ("obj")
+        \\ %75: [ 75..75 ]                       set_property %74, @1 ("b"), %73
+        \\ %76: [ 76..78 ]                       iterator_step_value %72
+        \\ %77: [ 77..78 ]                       get_binding @9 ("obj")
+        \\ %78: [ 78..78 ]                       set_property %77, @2 ("c"), %76
+        \\ %79: [ 79..87 ]                       iterator_step_value %72
+        \\ %80: [ 80..81 ]                       undefined
+        \\ %81: [ 81..82 ]                       eq_strict %79, %80
+        \\ %82: [ 82..82 ]                       br_cond %81, %83, %86
+        \\ %83: [ 83..83 ]                       label
+        \\ %84: [ 84..85 ]                       number 11
+        \\ %85: [ 85..85 ]                       br %88, %84
+        \\ %86: [ 86..86 ]                       label
+        \\ %87: [ 87..87 ]                       br %88, %79
+        \\ %88: [ 88..90 ]                       label
+        \\ %89: [ 89..90 ]                       get_binding @10 ("arr")
+        \\ %90: [ 90..90 ]                       set_property_indexed %89, 0, %88
+        \\ %91: [ 91..92 ]                       iterator_is_done %72
+        \\ %92: [ 92..92 ]                       br_cond %91, %95, %93
+        \\ %93: [ 93..93 ]                       label
+        \\ %94: [ 94..94 ]                       iterator_close %72
+        \\ %95: [ 95..95 ]                       label
+        \\ %96: [ 96..98 ]                       get_binding @0 ("a")
+        \\ %97: [ 97..98 ]                       get_binding @1 ("b")
+        \\ %98: [ 98..100]                       add %96, %97
+        \\ %99: [ 99..100]                       get_binding @2 ("c")
+        \\%100: [100..102]                       add %98, %99
+        \\%101: [101..102]                       get_binding @4 ("d")
+        \\%102: [102..104]                       add %100, %101
+        \\%103: [103..104]                       get_binding @5 ("e")
+        \\%104: [104..106]                       add %102, %103
+        \\%105: [105..106]                       get_binding @6 ("f")
+        \\%106: [106..108]                       add %104, %105
+        \\%107: [107..108]                       get_binding @8 ("g")
+        \\%108: [108..111]                       add %106, %107
+        \\%109: [109..110]                       get_binding @9 ("obj")
+        \\%110: [110..111]                       get_property %109, @0 ("a")
+        \\%111: [111..114]                       add %108, %110
+        \\%112: [112..113]                       get_binding @9 ("obj")
+        \\%113: [113..114]                       get_property %112, @1 ("b")
+        \\%114: [114..117]                       add %111, %113
+        \\%115: [115..116]                       get_binding @9 ("obj")
+        \\%116: [116..117]                       get_property %115, @2 ("c")
+        \\%117: [117..120]                       add %114, %116
+        \\%118: [118..119]                       get_binding @10 ("arr")
+        \\%119: [119..120]                       get_property_indexed %118, 0
+        \\%120: [120..121]                       add %117, %119
+        \\%121: [121..121]                       return %120
+        \\
+        \\Bytecode (test)
+        \\   0: 12 00 00 03 00 00 00             create_object r0, 3
+        \\   7: 07 01 00 01                      load_number_i8 r1, 1
+        \\  11: 13 00 00 00 00 00 00 01 00       object_set r0, @0 ("a"), r1
+        \\  20: 07 01 00 02                      load_number_i8 r1, 2
+        \\  24: 13 00 00 01 00 00 00 01 00       object_set r0, @1 ("b"), r1
+        \\  33: 07 01 00 03                      load_number_i8 r1, 3
+        \\  37: 13 00 00 02 00 00 00 01 00       object_set r0, @2 ("c"), r1
+        \\  46: 4c 01 00 00 00 00 00 00 00 00 00 get_property r1, r0, @0 ("a"), @0
+        \\  57: 49 00 00 00 00 01 00             initialize_binding @0 ("a"), r1
+        \\  64: 0a 01 00 00 00 00 00             load_string r1, @0 ("a")
+        \\  71: 0d 04 00 00 00 00 00             create_array r4, 0
+        \\  78: 0e 04 00 01 00                   array_push r4, r1
+        \\  83: 5f 02 00 00 00 04 00             copy_data_properties r2, r0, r4
+        \\  90: 49 03 00 00 00 02 00             initialize_binding @3 ("rest"), r2
+        \\  97: 12 00 00 01 00 00 00             create_object r0, 1
+        \\ 104: 4b 01 00 03 00 00 00             get_binding r1, @3 ("rest")
+        \\ 111: 13 00 00 03 00 00 00 01 00       object_set r0, @3 ("rest"), r1
+        \\ 120: 0a 01 00 03 00 00 00             load_string r1, @3 ("rest")
+        \\ 127: 4d 02 00 00 00 01 00 00 00       get_property_computed r2, r0, r1, @0
+        \\ 136: 21 00 00 02 00                   to_object r0, r2
+        \\ 141: 4c 01 00 00 00 01 00 00 00 01 00 get_property r1, r0, @1 ("b"), @1
+        \\ 152: 49 01 00 00 00 01 00             initialize_binding @1 ("b"), r1
+        \\ 159: 4c 01 00 00 00 02 00 00 00 02 00 get_property r1, r0, @2 ("c"), @2
+        \\ 170: 49 02 00 00 00 01 00             initialize_binding @2 ("c"), r1
+        \\ 177: 0d 00 00 02 00 00 00             create_array r0, 2
+        \\ 184: 07 01 00 04                      load_number_i8 r1, 4
+        \\ 188: 10 00 00 01 00 00 00 00 00       array_set r0, r1, 0
+        \\ 197: 07 01 00 05                      load_number_i8 r1, 5
+        \\ 201: 10 00 00 01 00 01 00 00 00       array_set r0, r1, 1
+        \\ 210: 6f 01 00 00 00                   get_iterator r1, r0
+        \\ 215: 73 00 00 01 00                   iterator_step_value r0, r1
+        \\ 220: 49 04 00 00 00 00 00             initialize_binding @4 ("d"), r0
+        \\ 227: 73 00 00 01 00                   iterator_step_value r0, r1
+        \\ 232: 49 05 00 00 00 00 00             initialize_binding @5 ("e"), r0
+        \\ 239: 76 00 00 01 00                   iterator_is_done r0, r1
+        \\ 244: 01 00 00 03 00 00 00             jump_if_true r0, 3
+        \\ 251: 75 01 00                         iterator_close r1
+        \\ 254: 12 00 00 01 00 00 00             create_object r0, 1
+        \\ 261: 4b 01 00 07 00 00 00             get_binding r1, @7 ("undefined")
+        \\ 268: 13 00 00 06 00 00 00 01 00       object_set r0, @6 ("f"), r1
+        \\ 277: 4c 01 00 00 00 06 00 00 00 03 00 get_property r1, r0, @6 ("f"), @3
+        \\ 288: 03 00 00                         load_undefined r0
+        \\ 291: 3f 02 00 01 00 00 00             eq_strict r2, r1, r0
+        \\ 298: 01 02 00 05 00 00 00             jump_if_true r2, 5
+        \\ 305: 00 09 00 00 00                   jump 9
+        \\ 310: 07 00 00 06                      load_number_i8 r0, 6
+        \\ 314: 00 05 00 00 00                   jump 5
+        \\ 319: 0c 00 00 01 00                   move r0, r1
+        \\ 324: 49 06 00 00 00 00 00             initialize_binding @6 ("f"), r0
+        \\ 331: 12 00 00 01 00 00 00             create_object r0, 1
+        \\ 338: 07 01 00 07                      load_number_i8 r1, 7
+        \\ 342: 13 00 00 08 00 00 00 01 00       object_set r0, @8 ("g"), r1
+        \\ 351: 4c 01 00 00 00 08 00 00 00 04 00 get_property r1, r0, @8 ("g"), @4
+        \\ 362: 49 08 00 00 00 01 00             initialize_binding @8 ("g"), r1
+        \\ 369: 12 00 00 00 00 00 00             create_object r0, 0
+        \\ 376: 49 09 00 00 00 00 00             initialize_binding @9 ("obj"), r0
+        \\ 383: 0d 00 00 00 00 00 00             create_array r0, 0
+        \\ 390: 49 0a 00 00 00 00 00             initialize_binding @10 ("arr"), r0
+        \\ 397: 12 00 00 01 00 00 00             create_object r0, 1
+        \\ 404: 07 01 00 08                      load_number_i8 r1, 8
+        \\ 408: 13 00 00 0b 00 00 00 01 00       object_set r0, @11 ("x"), r1
+        \\ 417: 0a 01 00 0b 00 00 00             load_string r1, @11 ("x")
+        \\ 424: 4d 02 00 00 00 01 00 01 00       get_property_computed r2, r0, r1, @1
+        \\ 433: 4b 00 00 09 00 00 00             get_binding r0, @9 ("obj")
+        \\ 440: 52 00 00 02 00 00 00 00 00 00 00 set_property r0, r2, @0 ("a"), @0
+        \\ 451: 0d 00 00 02 00 00 00             create_array r0, 2
+        \\ 458: 07 01 00 09                      load_number_i8 r1, 9
+        \\ 462: 10 00 00 01 00 00 00 00 00       array_set r0, r1, 0
+        \\ 471: 07 01 00 0a                      load_number_i8 r1, 10
+        \\ 475: 10 00 00 01 00 01 00 00 00       array_set r0, r1, 1
+        \\ 484: 6f 01 00 00 00                   get_iterator r1, r0
+        \\ 489: 73 00 00 01 00                   iterator_step_value r0, r1
+        \\ 494: 4b 02 00 09 00 00 00             get_binding r2, @9 ("obj")
+        \\ 501: 52 02 00 00 00 01 00 00 00 01 00 set_property r2, r0, @1 ("b"), @1
+        \\ 512: 73 00 00 01 00                   iterator_step_value r0, r1
+        \\ 517: 4b 02 00 09 00 00 00             get_binding r2, @9 ("obj")
+        \\ 524: 52 02 00 00 00 02 00 00 00 02 00 set_property r2, r0, @2 ("c"), @2
+        \\ 535: 73 00 00 01 00                   iterator_step_value r0, r1
+        \\ 540: 03 02 00                         load_undefined r2
+        \\ 543: 3f 03 00 00 00 02 00             eq_strict r3, r0, r2
+        \\ 550: 01 03 00 05 00 00 00             jump_if_true r3, 5
+        \\ 557: 00 0e 00 00 00                   jump 14
+        \\ 562: 07 02 00 0b                      load_number_i8 r2, 11
+        \\ 566: 0c 00 00 02 00                   move r0, r2
+        \\ 571: 00 00 00 00 00                   jump 0
+        \\ 576: 4b 02 00 0a 00 00 00             get_binding r2, @10 ("arr")
+        \\ 583: 56 02 00 00 00 00 00 00 00       set_property_indexed r2, r0, 0
+        \\ 592: 76 00 00 01 00                   iterator_is_done r0, r1
+        \\ 597: 01 00 00 03 00 00 00             jump_if_true r0, 3
+        \\ 604: 75 01 00                         iterator_close r1
+        \\ 607: 4b 00 00 00 00 00 00             get_binding r0, @0 ("a")
+        \\ 614: 4b 01 00 01 00 00 00             get_binding r1, @1 ("b")
+        \\ 621: 2b 02 00 00 00 01 00             add r2, r0, r1
+        \\ 628: 4b 00 00 02 00 00 00             get_binding r0, @2 ("c")
+        \\ 635: 2b 01 00 02 00 00 00             add r1, r2, r0
+        \\ 642: 4b 00 00 04 00 00 00             get_binding r0, @4 ("d")
+        \\ 649: 2b 02 00 01 00 00 00             add r2, r1, r0
+        \\ 656: 4b 00 00 05 00 00 00             get_binding r0, @5 ("e")
+        \\ 663: 2b 01 00 02 00 00 00             add r1, r2, r0
+        \\ 670: 4b 00 00 06 00 00 00             get_binding r0, @6 ("f")
+        \\ 677: 2b 02 00 01 00 00 00             add r2, r1, r0
+        \\ 684: 4b 00 00 08 00 00 00             get_binding r0, @8 ("g")
+        \\ 691: 2b 01 00 02 00 00 00             add r1, r2, r0
+        \\ 698: 4b 00 00 09 00 00 00             get_binding r0, @9 ("obj")
+        \\ 705: 4c 02 00 00 00 00 00 00 00 05 00 get_property r2, r0, @0 ("a"), @5
+        \\ 716: 2b 00 00 01 00 02 00             add r0, r1, r2
+        \\ 723: 4b 01 00 09 00 00 00             get_binding r1, @9 ("obj")
+        \\ 730: 4c 02 00 01 00 01 00 00 00 06 00 get_property r2, r1, @1 ("b"), @6
+        \\ 741: 2b 01 00 00 00 02 00             add r1, r0, r2
+        \\ 748: 4b 00 00 09 00 00 00             get_binding r0, @9 ("obj")
+        \\ 755: 4c 02 00 00 00 02 00 00 00 07 00 get_property r2, r0, @2 ("c"), @7
+        \\ 766: 2b 00 00 01 00 02 00             add r0, r1, r2
+        \\ 773: 4b 01 00 0a 00 00 00             get_binding r1, @10 ("arr")
+        \\ 780: 4e 02 00 01 00 00 00 00 00       get_property_indexed r2, r1, 0
+        \\ 789: 2b 01 00 00 00 02 00             add r1, r0, r2
+        \\ 796: 7a 01 00                         return r1
+        \\
+        ,
+    },
+
+    // For-of with destructuring
+    .{
+        .source =
+        \\var result = 0;
+        \\for (const [a, b] of [[1, 2], [3, 4]]) {
+        \\  result += a + b;
+        \\}
+        \\for (var {d, c} of [{c: 5, d: 6}]) {
+        \\  result += c + d;
+        \\}
+        \\for ([e, f] of [[7, 8]]) {
+        \\  result += e + f;
+        \\}
+        \\result;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 36 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 0
+        \\  %1: [  1..1  ]                       set_binding @0 ("result"), %0
+        \\  %2: [  2..21 ]                       undefined
+        \\  %3: [  3..3  ]                       push_scope
+        \\  %4: [  4..4  ]                       create_mutable_binding @1 ("a")
+        \\  %5: [  5..5  ]                       create_mutable_binding @2 ("b")
+        \\  %6: [  6..20 ]                       create_array 2
+        \\  %7: [  7..12 ]                       create_array 2
+        \\  %8: [  8..9  ]                       number 1
+        \\  %9: [  9..9  ]                       array_push %7, %8
+        \\ %10: [ 10..11 ]                       number 2
+        \\ %11: [ 11..11 ]                       array_push %7, %10
+        \\ %12: [ 12..12 ]                       array_push %6, %7
+        \\ %13: [ 13..18 ]                       create_array 2
+        \\ %14: [ 14..15 ]                       number 3
+        \\ %15: [ 15..15 ]                       array_push %13, %14
+        \\ %16: [ 16..17 ]                       number 4
+        \\ %17: [ 17..17 ]                       array_push %13, %16
+        \\ %18: [ 18..18 ]                       array_push %6, %13
+        \\ %19: [ 19..19 ]                       pop_scope
+        \\ %20: [ 20..48 ]                       get_iterator %6
+        \\ %21: [ 21..21 ]                       br %22, %2
+        \\ %22: [ 22..50 ]                       label
+        \\ %23: [ 23..31 ]                       iterator_step_value %20
+        \\ %24: [ 24..25 ]                       iterator_is_done %20
+        \\ %25: [ 25..26 ]                       logical_not %24
+        \\ %26: [ 26..26 ]                       br_cond %25, %27, %49
+        \\ %27: [ 27..27 ]                       label
+        \\ %28: [ 28..28 ]                       push_scope
+        \\ %29: [ 29..29 ]                       create_immutable_binding @1 ("a")
+        \\ %30: [ 30..30 ]                       create_immutable_binding @2 ("b")
+        \\ %31: [ 31..39 ]                       get_iterator %23
+        \\ %32: [ 32..33 ]                       iterator_step_value %31
+        \\ %33: [ 33..33 ]                       initialize_binding @1 ("a"), %32
+        \\ %34: [ 34..35 ]                       iterator_step_value %31
+        \\ %35: [ 35..35 ]                       initialize_binding @2 ("b"), %34
+        \\ %36: [ 36..37 ]                       iterator_is_done %31
+        \\ %37: [ 37..37 ]                       br_cond %36, %40, %38
+        \\ %38: [ 38..38 ]                       label
+        \\ %39: [ 39..39 ]                       iterator_close %31
+        \\ %40: [ 40..40 ]                       label
+        \\ %41: [ 41..45 ]                       get_binding @0 ("result")
+        \\ %42: [ 42..44 ]                       get_binding @1 ("a")
+        \\ %43: [ 43..44 ]                       get_binding @2 ("b")
+        \\ %44: [ 44..45 ]                       add %42, %43
+        \\ %45: [ 45..46 ]                       add %41, %44
+        \\ %46: [ 46..48 ]                       set_binding @0 ("result"), %45
+        \\ %47: [ 47..47 ]                       pop_scope
+        \\ %48: [ 48..48 ]                       br %22, %46
+        \\ %49: [ 49..49 ]                       label
+        \\ %50: [ 50..50 ]                       br %51, %22
+        \\ %51: [ 51..51 ]                       label
+        \\ %52: [ 52..61 ]                       undefined
+        \\ %53: [ 53..60 ]                       create_array 1
+        \\ %54: [ 54..59 ]                       create_object 2
+        \\ %55: [ 55..56 ]                       number 5
+        \\ %56: [ 56..56 ]                       object_set %54, @3 ("c"), %55
+        \\ %57: [ 57..58 ]                       number 6
+        \\ %58: [ 58..58 ]                       object_set %54, @4 ("d"), %57
+        \\ %59: [ 59..59 ]                       array_push %53, %54
+        \\ %60: [ 60..79 ]                       get_iterator %53
+        \\ %61: [ 61..61 ]                       br %62, %52
+        \\ %62: [ 62..81 ]                       label
+        \\ %63: [ 63..68 ]                       iterator_step_value %60
+        \\ %64: [ 64..65 ]                       iterator_is_done %60
+        \\ %65: [ 65..66 ]                       logical_not %64
+        \\ %66: [ 66..66 ]                       br_cond %65, %67, %80
+        \\ %67: [ 67..67 ]                       label
+        \\ %68: [ 68..71 ]                       to_object %63
+        \\ %69: [ 69..70 ]                       get_property %68, @4 ("d")
+        \\ %70: [ 70..70 ]                       set_binding @4 ("d"), %69
+        \\ %71: [ 71..72 ]                       get_property %68, @3 ("c")
+        \\ %72: [ 72..72 ]                       set_binding @3 ("c"), %71
+        \\ %73: [ 73..77 ]                       get_binding @0 ("result")
+        \\ %74: [ 74..76 ]                       get_binding @3 ("c")
+        \\ %75: [ 75..76 ]                       get_binding @4 ("d")
+        \\ %76: [ 76..77 ]                       add %74, %75
+        \\ %77: [ 77..78 ]                       add %73, %76
+        \\ %78: [ 78..79 ]                       set_binding @0 ("result"), %77
+        \\ %79: [ 79..79 ]                       br %62, %78
+        \\ %80: [ 80..80 ]                       label
+        \\ %81: [ 81..81 ]                       br %82, %62
+        \\ %82: [ 82..82 ]                       label
+        \\ %83: [ 83..92 ]                       undefined
+        \\ %84: [ 84..91 ]                       create_array 1
+        \\ %85: [ 85..90 ]                       create_array 2
+        \\ %86: [ 86..87 ]                       number 7
+        \\ %87: [ 87..87 ]                       array_push %85, %86
+        \\ %88: [ 88..89 ]                       number 8
+        \\ %89: [ 89..89 ]                       array_push %85, %88
+        \\ %90: [ 90..90 ]                       array_push %84, %85
+        \\ %91: [ 91..115]                       get_iterator %84
+        \\ %92: [ 92..92 ]                       br %93, %83
+        \\ %93: [ 93..117]                       label
+        \\ %94: [ 94..99 ]                       iterator_step_value %91
+        \\ %95: [ 95..96 ]                       iterator_is_done %91
+        \\ %96: [ 96..97 ]                       logical_not %95
+        \\ %97: [ 97..97 ]                       br_cond %96, %98, %116
+        \\ %98: [ 98..98 ]                       label
+        \\ %99: [ 99..107]                       get_iterator %94
+        \\%100: [100..101]                       iterator_step_value %99
+        \\%101: [101..101]                       set_binding @5 ("e"), %100
+        \\%102: [102..103]                       iterator_step_value %99
+        \\%103: [103..103]                       set_binding @6 ("f"), %102
+        \\%104: [104..105]                       iterator_is_done %99
+        \\%105: [105..105]                       br_cond %104, %108, %106
+        \\%106: [106..106]                       label
+        \\%107: [107..107]                       iterator_close %99
+        \\%108: [108..108]                       label
+        \\%109: [109..113]                       get_binding @0 ("result")
+        \\%110: [110..112]                       get_binding @5 ("e")
+        \\%111: [111..112]                       get_binding @6 ("f")
+        \\%112: [112..113]                       add %110, %111
+        \\%113: [113..114]                       add %109, %112
+        \\%114: [114..115]                       set_binding @0 ("result"), %113
+        \\%115: [115..115]                       br %93, %114
+        \\%116: [116..116]                       label
+        \\%117: [117..117]                       br %118, %93
+        \\%118: [118..118]                       label
+        \\%119: [119..120]                       get_binding @0 ("result")
+        \\%120: [120..120]                       return %119
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 00                      load_number_i8 r0, 0
+        \\   4: 50 00 00 00 00 00 00             set_binding @0 ("result"), r0
+        \\  11: 03 00 00                         load_undefined r0
+        \\  14: 42                               push_scope
+        \\  15: 47 01 00 00 00                   create_mutable_binding @1 ("a")
+        \\  20: 47 02 00 00 00                   create_mutable_binding @2 ("b")
+        \\  25: 0d 01 00 02 00 00 00             create_array r1, 2
+        \\  32: 0d 02 00 02 00 00 00             create_array r2, 2
+        \\  39: 07 03 00 01                      load_number_i8 r3, 1
+        \\  43: 10 02 00 03 00 00 00 00 00       array_set r2, r3, 0
+        \\  52: 07 03 00 02                      load_number_i8 r3, 2
+        \\  56: 10 02 00 03 00 01 00 00 00       array_set r2, r3, 1
+        \\  65: 10 01 00 02 00 00 00 00 00       array_set r1, r2, 0
+        \\  74: 0d 02 00 02 00 00 00             create_array r2, 2
+        \\  81: 07 03 00 03                      load_number_i8 r3, 3
+        \\  85: 10 02 00 03 00 00 00 00 00       array_set r2, r3, 0
+        \\  94: 07 03 00 04                      load_number_i8 r3, 4
+        \\  98: 10 02 00 03 00 01 00 00 00       array_set r2, r3, 1
+        \\ 107: 10 01 00 02 00 01 00 00 00       array_set r1, r2, 1
+        \\ 116: 45                               pop_scope
+        \\ 117: 6f 02 00 01 00                   get_iterator r2, r1
+        \\ 122: 73 01 00 02 00                   iterator_step_value r1, r2
+        \\ 127: 76 03 00 02 00                   iterator_is_done r3, r2
+        \\ 132: 26 04 00 03 00                   logical_not r4, r3
+        \\ 137: 01 04 00 05 00 00 00             jump_if_true r4, 5
+        \\ 144: 00 71 00 00 00                   jump 113
+        \\ 149: 42                               push_scope
+        \\ 150: 48 01 00 00 00                   create_immutable_binding @1 ("a")
+        \\ 155: 48 02 00 00 00                   create_immutable_binding @2 ("b")
+        \\ 160: 6f 03 00 01 00                   get_iterator r3, r1
+        \\ 165: 73 01 00 03 00                   iterator_step_value r1, r3
+        \\ 170: 49 01 00 00 00 01 00             initialize_binding @1 ("a"), r1
+        \\ 177: 73 01 00 03 00                   iterator_step_value r1, r3
+        \\ 182: 49 02 00 00 00 01 00             initialize_binding @2 ("b"), r1
+        \\ 189: 76 01 00 03 00                   iterator_is_done r1, r3
+        \\ 194: 01 01 00 03 00 00 00             jump_if_true r1, 3
+        \\ 201: 75 03 00                         iterator_close r3
+        \\ 204: 4b 01 00 00 00 00 00             get_binding r1, @0 ("result")
+        \\ 211: 4b 03 00 01 00 00 00             get_binding r3, @1 ("a")
+        \\ 218: 4b 04 00 02 00 00 00             get_binding r4, @2 ("b")
+        \\ 225: 2b 05 00 03 00 04 00             add r5, r3, r4
+        \\ 232: 2b 03 00 01 00 05 00             add r3, r1, r5
+        \\ 239: 50 00 00 00 00 03 00             set_binding @0 ("result"), r3
+        \\ 246: 0c 01 00 03 00                   move r1, r3
+        \\ 251: 45                               pop_scope
+        \\ 252: 0c 00 00 01 00                   move r0, r1
+        \\ 257: 00 74 ff ff ff                   jump -140
+        \\ 262: 03 00 00                         load_undefined r0
+        \\ 265: 0d 01 00 01 00 00 00             create_array r1, 1
+        \\ 272: 12 02 00 02 00 00 00             create_object r2, 2
+        \\ 279: 07 03 00 05                      load_number_i8 r3, 5
+        \\ 283: 13 02 00 03 00 00 00 03 00       object_set r2, @3 ("c"), r3
+        \\ 292: 07 03 00 06                      load_number_i8 r3, 6
+        \\ 296: 13 02 00 04 00 00 00 03 00       object_set r2, @4 ("d"), r3
+        \\ 305: 10 01 00 02 00 00 00 00 00       array_set r1, r2, 0
+        \\ 314: 6f 02 00 01 00                   get_iterator r2, r1
+        \\ 319: 73 01 00 02 00                   iterator_step_value r1, r2
+        \\ 324: 76 03 00 02 00                   iterator_is_done r3, r2
+        \\ 329: 26 04 00 03 00                   logical_not r4, r3
+        \\ 334: 01 04 00 05 00 00 00             jump_if_true r4, 5
+        \\ 341: 00 62 00 00 00                   jump 98
+        \\ 346: 21 03 00 01 00                   to_object r3, r1
+        \\ 351: 4c 01 00 03 00 04 00 00 00 00 00 get_property r1, r3, @4 ("d"), @0
+        \\ 362: 50 04 00 00 00 01 00             set_binding @4 ("d"), r1
+        \\ 369: 4c 01 00 03 00 03 00 00 00 01 00 get_property r1, r3, @3 ("c"), @1
+        \\ 380: 50 03 00 00 00 01 00             set_binding @3 ("c"), r1
+        \\ 387: 4b 01 00 00 00 00 00             get_binding r1, @0 ("result")
+        \\ 394: 4b 03 00 03 00 00 00             get_binding r3, @3 ("c")
+        \\ 401: 4b 04 00 04 00 00 00             get_binding r4, @4 ("d")
+        \\ 408: 2b 05 00 03 00 04 00             add r5, r3, r4
+        \\ 415: 2b 03 00 01 00 05 00             add r3, r1, r5
+        \\ 422: 50 00 00 00 00 03 00             set_binding @0 ("result"), r3
+        \\ 429: 0c 01 00 03 00                   move r1, r3
+        \\ 434: 0c 00 00 01 00                   move r0, r1
+        \\ 439: 00 83 ff ff ff                   jump -125
+        \\ 444: 03 00 00                         load_undefined r0
+        \\ 447: 0d 01 00 01 00 00 00             create_array r1, 1
+        \\ 454: 0d 02 00 02 00 00 00             create_array r2, 2
+        \\ 461: 07 03 00 07                      load_number_i8 r3, 7
+        \\ 465: 10 02 00 03 00 00 00 00 00       array_set r2, r3, 0
+        \\ 474: 07 03 00 08                      load_number_i8 r3, 8
+        \\ 478: 10 02 00 03 00 01 00 00 00       array_set r2, r3, 1
+        \\ 487: 10 01 00 02 00 00 00 00 00       array_set r1, r2, 0
+        \\ 496: 6f 02 00 01 00                   get_iterator r2, r1
+        \\ 501: 73 01 00 02 00                   iterator_step_value r1, r2
+        \\ 506: 76 03 00 02 00                   iterator_is_done r3, r2
+        \\ 511: 26 04 00 03 00                   logical_not r4, r3
+        \\ 516: 01 04 00 05 00 00 00             jump_if_true r4, 5
+        \\ 523: 00 65 00 00 00                   jump 101
+        \\ 528: 6f 03 00 01 00                   get_iterator r3, r1
+        \\ 533: 73 01 00 03 00                   iterator_step_value r1, r3
+        \\ 538: 50 05 00 00 00 01 00             set_binding @5 ("e"), r1
+        \\ 545: 73 01 00 03 00                   iterator_step_value r1, r3
+        \\ 550: 50 06 00 00 00 01 00             set_binding @6 ("f"), r1
+        \\ 557: 76 01 00 03 00                   iterator_is_done r1, r3
+        \\ 562: 01 01 00 03 00 00 00             jump_if_true r1, 3
+        \\ 569: 75 03 00                         iterator_close r3
+        \\ 572: 4b 01 00 00 00 00 00             get_binding r1, @0 ("result")
+        \\ 579: 4b 03 00 05 00 00 00             get_binding r3, @5 ("e")
+        \\ 586: 4b 04 00 06 00 00 00             get_binding r4, @6 ("f")
+        \\ 593: 2b 05 00 03 00 04 00             add r5, r3, r4
+        \\ 600: 2b 03 00 01 00 05 00             add r3, r1, r5
+        \\ 607: 50 00 00 00 00 03 00             set_binding @0 ("result"), r3
+        \\ 614: 0c 01 00 03 00                   move r1, r3
+        \\ 619: 0c 00 00 01 00                   move r0, r1
+        \\ 624: 00 80 ff ff ff                   jump -128
+        \\ 629: 4b 00 00 00 00 00 00             get_binding r0, @0 ("result")
+        \\ 636: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // Loops
+    .{
+        .source =
+        \\var x = 0;
+        \\while(x < 3) { x = x + 1; }
+        \\do { x = x + 1; } while(x < 5);
+        \\for(var i = 0; i < 3; i++) { x = x + i; }
+        \\x;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 8 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 0
+        \\  %1: [  1..1  ]                       set_binding @0 ("x"), %0
+        \\  %2: [  2..3  ]                       undefined
+        \\  %3: [  3..3  ]                       br %4, %2
+        \\  %4: [  4..16 ]                       label
+        \\  %5: [  5..7  ]                       get_binding @0 ("x")
+        \\  %6: [  6..7  ]                       number 3
+        \\  %7: [  7..8  ]                       lt %5, %6
+        \\  %8: [  8..8  ]                       br_cond %7, %9, %15
+        \\  %9: [  9..9  ]                       label
+        \\ %10: [ 10..12 ]                       get_binding @0 ("x")
+        \\ %11: [ 11..12 ]                       number 1
+        \\ %12: [ 12..13 ]                       add %10, %11
+        \\ %13: [ 13..14 ]                       set_binding @0 ("x"), %12
+        \\ %14: [ 14..14 ]                       br %4, %13
+        \\ %15: [ 15..15 ]                       label
+        \\ %16: [ 16..16 ]                       br %17, %4
+        \\ %17: [ 17..17 ]                       label
+        \\ %18: [ 18..31 ]                       label
+        \\ %19: [ 19..19 ] dead                  undefined
+        \\ %20: [ 20..22 ]                       get_binding @0 ("x")
+        \\ %21: [ 21..22 ]                       number 1
+        \\ %22: [ 22..23 ]                       add %20, %21
+        \\ %23: [ 23..24 ]                       set_binding @0 ("x"), %22
+        \\ %24: [ 24..24 ]                       br %25, %23
+        \\ %25: [ 25..33 ]                       label
+        \\ %26: [ 26..28 ]                       get_binding @0 ("x")
+        \\ %27: [ 27..28 ]                       number 5
+        \\ %28: [ 28..29 ]                       lt %26, %27
+        \\ %29: [ 29..29 ]                       br_cond %28, %30, %32
+        \\ %30: [ 30..30 ]                       label
+        \\ %31: [ 31..31 ]                       br %18, %25
+        \\ %32: [ 32..32 ]                       label
+        \\ %33: [ 33..33 ]                       br %34, %25
+        \\ %34: [ 34..34 ]                       label
+        \\ %35: [ 35..36 ]                       number 0
+        \\ %36: [ 36..36 ]                       set_binding @1 ("i"), %35
+        \\ %37: [ 37..38 ]                       undefined
+        \\ %38: [ 38..38 ]                       br %39, %37
+        \\ %39: [ 39..57 ]                       label
+        \\ %40: [ 40..42 ]                       get_binding @1 ("i")
+        \\ %41: [ 41..42 ]                       number 3
+        \\ %42: [ 42..43 ]                       lt %40, %41
+        \\ %43: [ 43..43 ]                       br_cond %42, %44, %56
+        \\ %44: [ 44..44 ]                       label
+        \\ %45: [ 45..47 ]                       get_binding @0 ("x")
+        \\ %46: [ 46..47 ]                       get_binding @1 ("i")
+        \\ %47: [ 47..48 ]                       add %45, %46
+        \\ %48: [ 48..49 ]                       set_binding @0 ("x"), %47
+        \\ %49: [ 49..49 ]                       br %50, %48
+        \\ %50: [ 50..55 ]                       label
+        \\ %51: [ 51..52 ]                       get_binding @1 ("i")
+        \\ %52: [ 52..53 ]                       to_numeric %51
+        \\ %53: [ 53..54 ]                       increment %52
+        \\ %54: [ 54..54 ]                       set_binding @1 ("i"), %53
+        \\ %55: [ 55..55 ]                       br %39, %50
+        \\ %56: [ 56..56 ]                       label
+        \\ %57: [ 57..57 ]                       br %58, %39
+        \\ %58: [ 58..58 ]                       label
+        \\ %59: [ 59..60 ]                       get_binding @0 ("x")
+        \\ %60: [ 60..60 ]                       return %59
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 00                      load_number_i8 r0, 0
+        \\   4: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  11: 03 00 00                         load_undefined r0
+        \\  14: 4b 01 00 00 00 00 00             get_binding r1, @0 ("x")
+        \\  21: 07 02 00 03                      load_number_i8 r2, 3
+        \\  25: 37 03 00 01 00 02 00             lt r3, r1, r2
+        \\  32: 01 03 00 05 00 00 00             jump_if_true r3, 5
+        \\  39: 00 28 00 00 00                   jump 40
+        \\  44: 4b 01 00 00 00 00 00             get_binding r1, @0 ("x")
+        \\  51: 07 02 00 01                      load_number_i8 r2, 1
+        \\  55: 2b 03 00 01 00 02 00             add r3, r1, r2
+        \\  62: 50 00 00 00 00 03 00             set_binding @0 ("x"), r3
+        \\  69: 0c 01 00 03 00                   move r1, r3
+        \\  74: 0c 00 00 01 00                   move r0, r1
+        \\  79: 00 ba ff ff ff                   jump -70
+        \\  84: 4b 01 00 00 00 00 00             get_binding r1, @0 ("x")
+        \\  91: 07 02 00 01                      load_number_i8 r2, 1
+        \\  95: 2b 03 00 01 00 02 00             add r3, r1, r2
+        \\ 102: 50 00 00 00 00 03 00             set_binding @0 ("x"), r3
+        \\ 109: 0c 01 00 03 00                   move r1, r3
+        \\ 114: 4b 02 00 00 00 00 00             get_binding r2, @0 ("x")
+        \\ 121: 07 03 00 05                      load_number_i8 r3, 5
+        \\ 125: 37 04 00 02 00 03 00             lt r4, r2, r3
+        \\ 132: 01 04 00 05 00 00 00             jump_if_true r4, 5
+        \\ 139: 00 0a 00 00 00                   jump 10
+        \\ 144: 0c 00 00 01 00                   move r0, r1
+        \\ 149: 00 ba ff ff ff                   jump -70
+        \\ 154: 07 00 00 00                      load_number_i8 r0, 0
+        \\ 158: 50 01 00 00 00 00 00             set_binding @1 ("i"), r0
+        \\ 165: 03 00 00                         load_undefined r0
+        \\ 168: 4b 01 00 01 00 00 00             get_binding r1, @1 ("i")
+        \\ 175: 07 02 00 03                      load_number_i8 r2, 3
+        \\ 179: 37 03 00 01 00 02 00             lt r3, r1, r2
+        \\ 186: 01 03 00 05 00 00 00             jump_if_true r3, 5
+        \\ 193: 00 43 00 00 00                   jump 67
+        \\ 198: 4b 01 00 00 00 00 00             get_binding r1, @0 ("x")
+        \\ 205: 4b 02 00 01 00 00 00             get_binding r2, @1 ("i")
+        \\ 212: 2b 03 00 01 00 02 00             add r3, r1, r2
+        \\ 219: 50 00 00 00 00 03 00             set_binding @0 ("x"), r3
+        \\ 226: 0c 01 00 03 00                   move r1, r3
+        \\ 231: 4b 02 00 01 00 00 00             get_binding r2, @1 ("i")
+        \\ 238: 1f 03 00 02 00                   to_numeric r3, r2
+        \\ 243: 22 02 00 03 00                   increment r2, r3
+        \\ 248: 50 01 00 00 00 02 00             set_binding @1 ("i"), r2
+        \\ 255: 0c 00 00 01 00                   move r0, r1
+        \\ 260: 00 9f ff ff ff                   jump -97
+        \\ 265: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\ 272: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // Break and continue
+    .{
+        .source =
+        \\var x = 0;
+        \\while(true) { x = x + 1; if (x >= 5) break; }
+        \\for(;;) { x = x + 1; if (x >= 10) break; }
+        \\while(x < 20) { x = x + 1; if (x % 2 === 0) continue; x = x + 10; }
+        \\foo: { x = x + 100; break foo; x = x + 200; }
+        \\x;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 121 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 0
+        \\  %1: [  1..1  ]                       set_binding @0 ("x"), %0
+        \\  %2: [  2..3  ]                       undefined
+        \\  %3: [  3..3  ]                       br %4, %2
+        \\  %4: [  4..26 ]                       label
+        \\  %5: [  5..6  ]                       true
+        \\  %6: [  6..6  ]                       br_cond %5, %7, %25
+        \\  %7: [  7..7  ]                       label
+        \\  %8: [  8..10 ]                       get_binding @0 ("x")
+        \\  %9: [  9..10 ]                       number 1
+        \\ %10: [ 10..11 ]                       add %8, %9
+        \\ %11: [ 11..17 ]                       set_binding @0 ("x"), %10
+        \\ %12: [ 12..14 ]                       get_binding @0 ("x")
+        \\ %13: [ 13..14 ]                       number 5
+        \\ %14: [ 14..15 ]                       gt_eq %12, %13
+        \\ %15: [ 15..15 ]                       br_cond %14, %16, %20
+        \\ %16: [ 16..16 ]                       label
+        \\ %17: [ 17..17 ]                       br %27, %11
+        \\ %18: [ 18..19 ] dead                  undefined
+        \\ %19: [ 19..19 ] dead                  br %23, %18
+        \\ %20: [ 20..20 ]                       label
+        \\ %21: [ 21..22 ]                       undefined
+        \\ %22: [ 22..22 ]                       br %23, %21
+        \\ %23: [ 23..24 ]                       label
+        \\ %24: [ 24..24 ]                       br %4, %23
+        \\ %25: [ 25..25 ]                       label
+        \\ %26: [ 26..26 ]                       br %27, %4
+        \\ %27: [ 27..27 ]                       label
+        \\ %28: [ 28..29 ]                       undefined
+        \\ %29: [ 29..29 ]                       br %30, %28
+        \\ %30: [ 30..54 ]                       label
+        \\ %31: [ 31..32 ]                       true
+        \\ %32: [ 32..32 ]                       br_cond %31, %33, %53
+        \\ %33: [ 33..33 ]                       label
+        \\ %34: [ 34..36 ]                       get_binding @0 ("x")
+        \\ %35: [ 35..36 ]                       number 1
+        \\ %36: [ 36..37 ]                       add %34, %35
+        \\ %37: [ 37..43 ]                       set_binding @0 ("x"), %36
+        \\ %38: [ 38..40 ]                       get_binding @0 ("x")
+        \\ %39: [ 39..40 ]                       number 10
+        \\ %40: [ 40..41 ]                       gt_eq %38, %39
+        \\ %41: [ 41..41 ]                       br_cond %40, %42, %46
+        \\ %42: [ 42..42 ]                       label
+        \\ %43: [ 43..43 ]                       br %55, %37
+        \\ %44: [ 44..45 ] dead                  undefined
+        \\ %45: [ 45..45 ] dead                  br %49, %44
+        \\ %46: [ 46..46 ]                       label
+        \\ %47: [ 47..48 ]                       undefined
+        \\ %48: [ 48..48 ]                       br %49, %47
+        \\ %49: [ 49..50 ]                       label
+        \\ %50: [ 50..50 ]                       br %51, %49
+        \\ %51: [ 51..52 ]                       label
+        \\ %52: [ 52..52 ]                       br %30, %51
+        \\ %53: [ 53..53 ]                       label
+        \\ %54: [ 54..54 ]                       br %55, %30
+        \\ %55: [ 55..55 ]                       label
+        \\ %56: [ 56..57 ]                       undefined
+        \\ %57: [ 57..57 ]                       br %58, %56
+        \\ %58: [ 58..88 ]                       label
+        \\ %59: [ 59..61 ]                       get_binding @0 ("x")
+        \\ %60: [ 60..61 ]                       number 20
+        \\ %61: [ 61..62 ]                       lt %59, %60
+        \\ %62: [ 62..62 ]                       br_cond %61, %63, %87
+        \\ %63: [ 63..63 ]                       label
+        \\ %64: [ 64..66 ]                       get_binding @0 ("x")
+        \\ %65: [ 65..66 ]                       number 1
+        \\ %66: [ 66..67 ]                       add %64, %65
+        \\ %67: [ 67..75 ]                       set_binding @0 ("x"), %66
+        \\ %68: [ 68..70 ]                       get_binding @0 ("x")
+        \\ %69: [ 69..70 ]                       number 2
+        \\ %70: [ 70..72 ]                       rem %68, %69
+        \\ %71: [ 71..72 ]                       number 0
+        \\ %72: [ 72..73 ]                       eq_strict %70, %71
+        \\ %73: [ 73..73 ]                       br_cond %72, %74, %78
+        \\ %74: [ 74..74 ]                       label
+        \\ %75: [ 75..75 ]                       br %58, %67
+        \\ %76: [ 76..77 ] dead                  undefined
+        \\ %77: [ 77..77 ] dead                  br %81, %76
+        \\ %78: [ 78..78 ]                       label
+        \\ %79: [ 79..80 ]                       undefined
+        \\ %80: [ 80..80 ]                       br %81, %79
+        \\ %81: [ 81..81 ]                       label
+        \\ %82: [ 82..84 ]                       get_binding @0 ("x")
+        \\ %83: [ 83..84 ]                       number 10
+        \\ %84: [ 84..85 ]                       add %82, %83
+        \\ %85: [ 85..86 ]                       set_binding @0 ("x"), %84
+        \\ %86: [ 86..86 ]                       br %58, %85
+        \\ %87: [ 87..87 ]                       label
+        \\ %88: [ 88..88 ]                       br %89, %58
+        \\ %89: [ 89..89 ]                       label
+        \\ %90: [ 90..90 ] dead                  undefined
+        \\ %91: [ 91..93 ]                       get_binding @0 ("x")
+        \\ %92: [ 92..93 ]                       number 100
+        \\ %93: [ 93..94 ]                       add %91, %92
+        \\ %94: [ 94..95 ]                       set_binding @0 ("x"), %93
+        \\ %95: [ 95..95 ]                       br %101, %94
+        \\ %96: [ 96..98 ] dead                  get_binding @0 ("x")
+        \\ %97: [ 97..98 ] dead                  number 200
+        \\ %98: [ 98..99 ] dead                  add %96, %97
+        \\ %99: [ 99..100] dead                  set_binding @0 ("x"), %98
+        \\%100: [100..100] dead                  br %101, %99
+        \\%101: [101..101]                       label
+        \\%102: [102..103]                       get_binding @0 ("x")
+        \\%103: [103..103]                       return %102
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 00                      load_number_i8 r0, 0
+        \\   4: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  11: 03 00 00                         load_undefined r0
+        \\  14: 05 01 00                         load_true r1
+        \\  17: 01 01 00 05 00 00 00             jump_if_true r1, 5
+        \\  24: 00 4e 00 00 00                   jump 78
+        \\  29: 4b 01 00 00 00 00 00             get_binding r1, @0 ("x")
+        \\  36: 07 02 00 01                      load_number_i8 r2, 1
+        \\  40: 2b 03 00 01 00 02 00             add r3, r1, r2
+        \\  47: 50 00 00 00 00 03 00             set_binding @0 ("x"), r3
+        \\  54: 0c 01 00 03 00                   move r1, r3
+        \\  59: 4b 02 00 00 00 00 00             get_binding r2, @0 ("x")
+        \\  66: 07 03 00 05                      load_number_i8 r3, 5
+        \\  70: 3a 04 00 02 00 03 00             gt_eq r4, r2, r3
+        \\  77: 01 04 00 05 00 00 00             jump_if_true r4, 5
+        \\  84: 00 05 00 00 00                   jump 5
+        \\  89: 00 0d 00 00 00                   jump 13
+        \\  94: 03 01 00                         load_undefined r1
+        \\  97: 0c 00 00 01 00                   move r0, r1
+        \\ 102: 00 a3 ff ff ff                   jump -93
+        \\ 107: 03 00 00                         load_undefined r0
+        \\ 110: 05 01 00                         load_true r1
+        \\ 113: 01 01 00 05 00 00 00             jump_if_true r1, 5
+        \\ 120: 00 4e 00 00 00                   jump 78
+        \\ 125: 4b 01 00 00 00 00 00             get_binding r1, @0 ("x")
+        \\ 132: 07 02 00 01                      load_number_i8 r2, 1
+        \\ 136: 2b 03 00 01 00 02 00             add r3, r1, r2
+        \\ 143: 50 00 00 00 00 03 00             set_binding @0 ("x"), r3
+        \\ 150: 0c 01 00 03 00                   move r1, r3
+        \\ 155: 4b 02 00 00 00 00 00             get_binding r2, @0 ("x")
+        \\ 162: 07 03 00 0a                      load_number_i8 r3, 10
+        \\ 166: 3a 04 00 02 00 03 00             gt_eq r4, r2, r3
+        \\ 173: 01 04 00 05 00 00 00             jump_if_true r4, 5
+        \\ 180: 00 05 00 00 00                   jump 5
+        \\ 185: 00 0d 00 00 00                   jump 13
+        \\ 190: 03 01 00                         load_undefined r1
+        \\ 193: 0c 00 00 01 00                   move r0, r1
+        \\ 198: 00 a3 ff ff ff                   jump -93
+        \\ 203: 03 00 00                         load_undefined r0
+        \\ 206: 4b 01 00 00 00 00 00             get_binding r1, @0 ("x")
+        \\ 213: 07 02 00 14                      load_number_i8 r2, 20
+        \\ 217: 37 03 00 01 00 02 00             lt r3, r1, r2
+        \\ 224: 01 03 00 05 00 00 00             jump_if_true r3, 5
+        \\ 231: 00 7c 00 00 00                   jump 124
+        \\ 236: 4b 01 00 00 00 00 00             get_binding r1, @0 ("x")
+        \\ 243: 07 02 00 01                      load_number_i8 r2, 1
+        \\ 247: 2b 03 00 01 00 02 00             add r3, r1, r2
+        \\ 254: 50 00 00 00 00 03 00             set_binding @0 ("x"), r3
+        \\ 261: 0c 01 00 03 00                   move r1, r3
+        \\ 266: 4b 02 00 00 00 00 00             get_binding r2, @0 ("x")
+        \\ 273: 07 03 00 02                      load_number_i8 r3, 2
+        \\ 277: 2f 04 00 02 00 03 00             rem r4, r2, r3
+        \\ 284: 07 02 00 00                      load_number_i8 r2, 0
+        \\ 288: 3f 03 00 04 00 02 00             eq_strict r3, r4, r2
+        \\ 295: 01 03 00 05 00 00 00             jump_if_true r3, 5
+        \\ 302: 00 0a 00 00 00                   jump 10
+        \\ 307: 0c 00 00 01 00                   move r0, r1
+        \\ 312: 00 91 ff ff ff                   jump -111
+        \\ 317: 03 01 00                         load_undefined r1
+        \\ 320: 4b 01 00 00 00 00 00             get_binding r1, @0 ("x")
+        \\ 327: 07 02 00 0a                      load_number_i8 r2, 10
+        \\ 331: 2b 03 00 01 00 02 00             add r3, r1, r2
+        \\ 338: 50 00 00 00 00 03 00             set_binding @0 ("x"), r3
+        \\ 345: 0c 01 00 03 00                   move r1, r3
+        \\ 350: 0c 00 00 01 00                   move r0, r1
+        \\ 355: 00 66 ff ff ff                   jump -154
+        \\ 360: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\ 367: 07 01 00 64                      load_number_i8 r1, 100
+        \\ 371: 2b 02 00 00 00 01 00             add r2, r0, r1
+        \\ 378: 50 00 00 00 00 02 00             set_binding @0 ("x"), r2
+        \\ 385: 0c 00 00 02 00                   move r0, r2
+        \\ 390: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\ 397: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // Switch statement
+    .{
+        .source =
+        \\var x = 0;
+        \\switch("b") {
+        \\    case "a": x = 1; break;
+        \\    case "b": let y = 2; x = y;
+        \\    case "c": x = x + 3; break;
+        \\    default: x = 100;
+        \\}
+        \\x;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 5 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 0
+        \\  %1: [  1..1  ]                       set_binding @0 ("x"), %0
+        \\  %2: [  2..17 ]                       string @1 ("b")
+        \\  %3: [  3..3  ]                       push_scope
+        \\  %4: [  4..4  ]                       create_mutable_binding @2 ("y")
+        \\  %5: [  5..20 ]                       undefined
+        \\  %6: [  6..6  ]                       br %7, %5
+        \\  %7: [  7..7  ]                       label
+        \\  %8: [  8..9  ]                       string @3 ("a")
+        \\  %9: [  9..10 ]                       eq_strict %2, %8
+        \\ %10: [ 10..10 ]                       br_cond %9, %21, %11
+        \\ %11: [ 11..11 ]                       label
+        \\ %12: [ 12..13 ]                       string @1 ("b")
+        \\ %13: [ 13..14 ]                       eq_strict %2, %12
+        \\ %14: [ 14..14 ]                       br_cond %13, %25, %15
+        \\ %15: [ 15..15 ]                       label
+        \\ %16: [ 16..17 ]                       string @4 ("c")
+        \\ %17: [ 17..18 ]                       eq_strict %2, %16
+        \\ %18: [ 18..18 ]                       br_cond %17, %30, %19
+        \\ %19: [ 19..19 ]                       label
+        \\ %20: [ 20..20 ]                       br %36, %5
+        \\ %21: [ 21..21 ]                       label
+        \\ %22: [ 22..23 ]                       number 1
+        \\ %23: [ 23..24 ]                       set_binding @0 ("x"), %22
+        \\ %24: [ 24..24 ]                       br %40, %23
+        \\ %25: [ 25..25 ]                       label
+        \\ %26: [ 26..27 ]                       number 2
+        \\ %27: [ 27..27 ]                       initialize_binding @2 ("y"), %26
+        \\ %28: [ 28..29 ]                       get_binding @2 ("y")
+        \\ %29: [ 29..29 ]                       set_binding @0 ("x"), %28
+        \\ %30: [ 30..30 ]                       label
+        \\ %31: [ 31..33 ]                       get_binding @0 ("x")
+        \\ %32: [ 32..33 ]                       number 3
+        \\ %33: [ 33..34 ]                       add %31, %32
+        \\ %34: [ 34..35 ]                       set_binding @0 ("x"), %33
+        \\ %35: [ 35..35 ]                       br %40, %34
+        \\ %36: [ 36..36 ]                       label
+        \\ %37: [ 37..38 ]                       number 100
+        \\ %38: [ 38..39 ]                       set_binding @0 ("x"), %37
+        \\ %39: [ 39..39 ]                       br %40, %38
+        \\ %40: [ 40..40 ]                       label
+        \\ %41: [ 41..41 ]                       pop_scope
+        \\ %42: [ 42..43 ]                       get_binding @0 ("x")
+        \\ %43: [ 43..43 ]                       return %42
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 00                      load_number_i8 r0, 0
+        \\   4: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  11: 0a 00 00 01 00 00 00             load_string r0, @1 ("b")
+        \\  18: 42                               push_scope
+        \\  19: 47 02 00 00 00                   create_mutable_binding @2 ("y")
+        \\  24: 03 01 00                         load_undefined r1
+        \\  27: 0a 02 00 03 00 00 00             load_string r2, @3 ("a")
+        \\  34: 3f 03 00 00 00 02 00             eq_strict r3, r0, r2
+        \\  41: 01 03 00 05 00 00 00             jump_if_true r3, 5
+        \\  48: 00 15 00 00 00                   jump 21
+        \\  53: 07 00 00 01                      load_number_i8 r0, 1
+        \\  57: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  64: 0c 01 00 00 00                   move r1, r0
+        \\  69: 00 85 00 00 00                   jump 133
+        \\  74: 0a 02 00 01 00 00 00             load_string r2, @1 ("b")
+        \\  81: 3f 03 00 00 00 02 00             eq_strict r3, r0, r2
+        \\  88: 01 03 00 05 00 00 00             jump_if_true r3, 5
+        \\  95: 00 1e 00 00 00                   jump 30
+        \\ 100: 07 00 00 02                      load_number_i8 r0, 2
+        \\ 104: 49 02 00 00 00 00 00             initialize_binding @2 ("y"), r0
+        \\ 111: 4b 00 00 02 00 00 00             get_binding r0, @2 ("y")
+        \\ 118: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\ 125: 00 1a 00 00 00                   jump 26
+        \\ 130: 0a 02 00 04 00 00 00             load_string r2, @4 ("c")
+        \\ 137: 3f 03 00 00 00 02 00             eq_strict r3, r0, r2
+        \\ 144: 01 03 00 05 00 00 00             jump_if_true r3, 5
+        \\ 151: 00 23 00 00 00                   jump 35
+        \\ 156: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\ 163: 07 01 00 03                      load_number_i8 r1, 3
+        \\ 167: 2b 02 00 00 00 01 00             add r2, r0, r1
+        \\ 174: 50 00 00 00 00 02 00             set_binding @0 ("x"), r2
+        \\ 181: 0c 00 00 02 00                   move r0, r2
+        \\ 186: 00 10 00 00 00                   jump 16
+        \\ 191: 07 00 00 64                      load_number_i8 r0, 100
+        \\ 195: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\ 202: 0c 01 00 00 00                   move r1, r0
+        \\ 207: 45                               pop_scope
+        \\ 208: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\ 215: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // Try statement
+    .{
+        .source =
+        \\try {} catch {}
+        \\
+        ,
+        .expected_result = .{ .value = .undefined },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..5  ]                       label
+        \\  %1: [  1..3  ]                       undefined
+        \\  %2: [  2..5  ]                       label
+        \\  %3: [  3..3  ]                       br %8, %1
+        \\  %4: [  4..5  ]                       label
+        \\  %5: [  5..5  ]                       exception_handler %0, %2, %4, 0
+        \\  %6: [  6..7  ]                       undefined
+        \\  %7: [  7..7  ]                       br %8, %6
+        \\  %8: [  8..9  ]                       label
+        \\  %9: [  9..9  ]                       return %8
+        \\
+        \\Bytecode (test)
+        \\   0: 03 01 00                         load_undefined r1
+        \\   3: 0c 00 00 01 00                   move r0, r1
+        \\   8: 7a 00 00                         return r0
+        \\  11: 03 00 00                         load_undefined r0
+        \\  14: 00 f5 ff ff ff                   jump -11
+        \\
+        \\Exception handlers
+        \\  [   0..3   ) →   11, r3, 0
+        \\
+        ,
+    },
+    .{
+        .source =
+        \\var x = 0;
+        \\try {
+        \\  throw 1;
+        \\} catch (e) {
+        \\  x += e;
+        \\}
+        \\try {
+        \\  x += 2;
+        \\} finally {
+        \\  x += 3;
+        \\}
+        \\try {
+        \\  throw 4;
+        \\} catch (e) {
+        \\  x += e;
+        \\} finally {
+        \\  x += 5;
+        \\}
+        \\x;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 15 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 0
+        \\  %1: [  1..1  ]                       set_binding @0 ("x"), %0
+        \\  %2: [  2..9  ]                       label
+        \\  %3: [  3..4  ]                       number 1
+        \\  %4: [  4..4  ]                       throw %3
+        \\  %5: [  5..7  ] dead                  undefined
+        \\  %6: [  6..9  ]                       label
+        \\  %7: [  7..7  ] dead                  br %19, %5
+        \\  %8: [  8..9  ]                       label
+        \\  %9: [  9..12 ]                       exception_handler %2, %6, %8, 0
+        \\ %10: [ 10..10 ]                       push_catch_scope
+        \\ %11: [ 11..11 ]                       create_mutable_binding @1 ("e")
+        \\ %12: [ 12..12 ]                       initialize_binding @1 ("e"), %9
+        \\ %13: [ 13..15 ]                       get_binding @0 ("x")
+        \\ %14: [ 14..15 ]                       get_binding @1 ("e")
+        \\ %15: [ 15..16 ]                       add %13, %14
+        \\ %16: [ 16..18 ]                       set_binding @0 ("x"), %15
+        \\ %17: [ 17..17 ]                       pop_scope
+        \\ %18: [ 18..18 ]                       br %19, %16
+        \\ %19: [ 19..19 ]                       label
+        \\ %20: [ 20..28 ]                       label
+        \\ %21: [ 21..23 ]                       get_binding @0 ("x")
+        \\ %22: [ 22..23 ]                       number 2
+        \\ %23: [ 23..24 ]                       add %21, %22
+        \\ %24: [ 24..26 ]                       set_binding @0 ("x"), %23
+        \\ %25: [ 25..25 ]                       label
+        \\ %26: [ 26..26 ]                       br %34, %24
+        \\ %27: [ 27..28 ]                       label
+        \\ %28: [ 28..33 ]                       exception_handler %20, %27, %27, 0
+        \\ %29: [ 29..31 ]                       get_binding @0 ("x")
+        \\ %30: [ 30..31 ]                       number 3
+        \\ %31: [ 31..32 ]                       add %29, %30
+        \\ %32: [ 32..32 ]                       set_binding @0 ("x"), %31
+        \\ %33: [ 33..33 ]                       throw %28
+        \\ %34: [ 34..39 ]                       label
+        \\ %35: [ 35..37 ]                       get_binding @0 ("x")
+        \\ %36: [ 36..37 ]                       number 3
+        \\ %37: [ 37..38 ]                       add %35, %36
+        \\ %38: [ 38..38 ]                       set_binding @0 ("x"), %37
+        \\ %39: [ 39..39 ]                       br %40, %34
+        \\ %40: [ 40..40 ]                       label
+        \\ %41: [ 41..48 ]                       label
+        \\ %42: [ 42..43 ]                       number 4
+        \\ %43: [ 43..43 ]                       throw %42
+        \\ %44: [ 44..46 ] dead                  undefined
+        \\ %45: [ 45..48 ]                       label
+        \\ %46: [ 46..46 ] dead                  br %65, %44
+        \\ %47: [ 47..59 ]                       label
+        \\ %48: [ 48..51 ]                       exception_handler %41, %45, %47, 0
+        \\ %49: [ 49..49 ]                       push_catch_scope
+        \\ %50: [ 50..50 ]                       create_mutable_binding @1 ("e")
+        \\ %51: [ 51..51 ]                       initialize_binding @1 ("e"), %48
+        \\ %52: [ 52..54 ]                       get_binding @0 ("x")
+        \\ %53: [ 53..54 ]                       get_binding @1 ("e")
+        \\ %54: [ 54..55 ]                       add %52, %53
+        \\ %55: [ 55..57 ]                       set_binding @0 ("x"), %54
+        \\ %56: [ 56..56 ]                       pop_scope
+        \\ %57: [ 57..57 ]                       br %65, %55
+        \\ %58: [ 58..59 ]                       label
+        \\ %59: [ 59..64 ]                       exception_handler %47, %58, %58, 0
+        \\ %60: [ 60..62 ]                       get_binding @0 ("x")
+        \\ %61: [ 61..62 ]                       number 5
+        \\ %62: [ 62..63 ]                       add %60, %61
+        \\ %63: [ 63..63 ]                       set_binding @0 ("x"), %62
+        \\ %64: [ 64..64 ]                       throw %59
+        \\ %65: [ 65..70 ]                       label
+        \\ %66: [ 66..68 ]                       get_binding @0 ("x")
+        \\ %67: [ 67..68 ]                       number 5
+        \\ %68: [ 68..69 ]                       add %66, %67
+        \\ %69: [ 69..69 ]                       set_binding @0 ("x"), %68
+        \\ %70: [ 70..70 ]                       br %71, %65
+        \\ %71: [ 71..71 ]                       label
+        \\ %72: [ 72..73 ]                       get_binding @0 ("x")
+        \\ %73: [ 73..73 ]                       return %72
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 00                      load_number_i8 r0, 0
+        \\   4: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  11: 07 01 00 01                      load_number_i8 r1, 1
+        \\  15: 78 01 00                         throw r1
+        \\  18: 41                               push_catch_scope
+        \\  19: 47 01 00 00 00                   create_mutable_binding @1 ("e")
+        \\  24: 49 01 00 00 00 03 00             initialize_binding @1 ("e"), r3
+        \\  31: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\  38: 4b 01 00 01 00 00 00             get_binding r1, @1 ("e")
+        \\  45: 2b 02 00 00 00 01 00             add r2, r0, r1
+        \\  52: 50 00 00 00 00 02 00             set_binding @0 ("x"), r2
+        \\  59: 0c 00 00 02 00                   move r0, r2
+        \\  64: 45                               pop_scope
+        \\  65: 4b 01 00 00 00 00 00             get_binding r1, @0 ("x")
+        \\  72: 07 02 00 02                      load_number_i8 r2, 2
+        \\  76: 2b 03 00 01 00 02 00             add r3, r1, r2
+        \\  83: 50 00 00 00 00 03 00             set_binding @0 ("x"), r3
+        \\  90: 0c 01 00 03 00                   move r1, r3
+        \\  95: 0c 00 00 01 00                   move r0, r1
+        \\ 100: 4b 01 00 00 00 00 00             get_binding r1, @0 ("x")
+        \\ 107: 07 02 00 03                      load_number_i8 r2, 3
+        \\ 111: 2b 03 00 01 00 02 00             add r3, r1, r2
+        \\ 118: 50 00 00 00 00 03 00             set_binding @0 ("x"), r3
+        \\ 125: 07 01 00 04                      load_number_i8 r1, 4
+        \\ 129: 78 01 00                         throw r1
+        \\ 132: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\ 139: 07 01 00 03                      load_number_i8 r1, 3
+        \\ 143: 2b 03 00 00 00 01 00             add r3, r0, r1
+        \\ 150: 50 00 00 00 00 03 00             set_binding @0 ("x"), r3
+        \\ 157: 78 02 00                         throw r2
+        \\ 160: 41                               push_catch_scope
+        \\ 161: 47 01 00 00 00                   create_mutable_binding @1 ("e")
+        \\ 166: 49 01 00 00 00 03 00             initialize_binding @1 ("e"), r3
+        \\ 173: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\ 180: 4b 02 00 01 00 00 00             get_binding r2, @1 ("e")
+        \\ 187: 2b 03 00 00 00 02 00             add r3, r0, r2
+        \\ 194: 50 00 00 00 00 03 00             set_binding @0 ("x"), r3
+        \\ 201: 0c 00 00 03 00                   move r0, r3
+        \\ 206: 45                               pop_scope
+        \\ 207: 4b 01 00 00 00 00 00             get_binding r1, @0 ("x")
+        \\ 214: 07 02 00 05                      load_number_i8 r2, 5
+        \\ 218: 2b 03 00 01 00 02 00             add r3, r1, r2
+        \\ 225: 50 00 00 00 00 03 00             set_binding @0 ("x"), r3
+        \\ 232: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\ 239: 7a 00 00                         return r0
+        \\ 242: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\ 249: 07 01 00 05                      load_number_i8 r1, 5
+        \\ 253: 2b 03 00 00 00 01 00             add r3, r0, r1
+        \\ 260: 50 00 00 00 00 03 00             set_binding @0 ("x"), r3
+        \\ 267: 78 02 00                         throw r2
+        \\
+        \\Exception handlers
+        \\  [  11..18  ) →   18, r3, 0
+        \\  [  65..132 ) →  132, r2, 0
+        \\  [ 125..160 ) →  160, r3, 0
+        \\  [ 160..242 ) →  242, r2, 0
+        \\
+        ,
+    },
+
+    // For-in/of statement
+    .{
+        .source =
+        \\var sum = 0;
+        \\for (var x of [1, 2, 3]) {
+        \\  sum = sum + x;
+        \\}
+        \\sum;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 6 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 0
+        \\  %1: [  1..1  ]                       set_binding @0 ("sum"), %0
+        \\  %2: [  2..11 ]                       undefined
+        \\  %3: [  3..10 ]                       create_array 3
+        \\  %4: [  4..5  ]                       number 1
+        \\  %5: [  5..5  ]                       array_push %3, %4
+        \\  %6: [  6..7  ]                       number 2
+        \\  %7: [  7..7  ]                       array_push %3, %6
+        \\  %8: [  8..9  ]                       number 3
+        \\  %9: [  9..9  ]                       array_push %3, %8
+        \\ %10: [ 10..23 ]                       get_iterator %3
+        \\ %11: [ 11..11 ]                       br %12, %2
+        \\ %12: [ 12..25 ]                       label
+        \\ %13: [ 13..18 ]                       iterator_step_value %10
+        \\ %14: [ 14..15 ]                       iterator_is_done %10
+        \\ %15: [ 15..16 ]                       logical_not %14
+        \\ %16: [ 16..16 ]                       br_cond %15, %17, %24
+        \\ %17: [ 17..17 ]                       label
+        \\ %18: [ 18..18 ]                       set_binding @1 ("x"), %13
+        \\ %19: [ 19..21 ]                       get_binding @0 ("sum")
+        \\ %20: [ 20..21 ]                       get_binding @1 ("x")
+        \\ %21: [ 21..22 ]                       add %19, %20
+        \\ %22: [ 22..23 ]                       set_binding @0 ("sum"), %21
+        \\ %23: [ 23..23 ]                       br %12, %22
+        \\ %24: [ 24..24 ]                       label
+        \\ %25: [ 25..25 ]                       br %26, %12
+        \\ %26: [ 26..26 ]                       label
+        \\ %27: [ 27..28 ]                       get_binding @0 ("sum")
+        \\ %28: [ 28..28 ]                       return %27
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 00                      load_number_i8 r0, 0
+        \\   4: 50 00 00 00 00 00 00             set_binding @0 ("sum"), r0
+        \\  11: 03 00 00                         load_undefined r0
+        \\  14: 0d 01 00 03 00 00 00             create_array r1, 3
+        \\  21: 07 02 00 01                      load_number_i8 r2, 1
+        \\  25: 10 01 00 02 00 00 00 00 00       array_set r1, r2, 0
+        \\  34: 07 02 00 02                      load_number_i8 r2, 2
+        \\  38: 10 01 00 02 00 01 00 00 00       array_set r1, r2, 1
+        \\  47: 07 02 00 03                      load_number_i8 r2, 3
+        \\  51: 10 01 00 02 00 02 00 00 00       array_set r1, r2, 2
+        \\  60: 6f 02 00 01 00                   get_iterator r2, r1
+        \\  65: 73 01 00 02 00                   iterator_step_value r1, r2
+        \\  70: 76 03 00 02 00                   iterator_is_done r3, r2
+        \\  75: 26 04 00 03 00                   logical_not r4, r3
+        \\  80: 01 04 00 05 00 00 00             jump_if_true r4, 5
+        \\  87: 00 32 00 00 00                   jump 50
+        \\  92: 50 01 00 00 00 01 00             set_binding @1 ("x"), r1
+        \\  99: 4b 01 00 00 00 00 00             get_binding r1, @0 ("sum")
+        \\ 106: 4b 03 00 01 00 00 00             get_binding r3, @1 ("x")
+        \\ 113: 2b 04 00 01 00 03 00             add r4, r1, r3
+        \\ 120: 50 00 00 00 00 04 00             set_binding @0 ("sum"), r4
+        \\ 127: 0c 01 00 04 00                   move r1, r4
+        \\ 132: 0c 00 00 01 00                   move r0, r1
+        \\ 137: 00 b3 ff ff ff                   jump -77
+        \\ 142: 4b 00 00 00 00 00 00             get_binding r0, @0 ("sum")
+        \\ 149: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // For-in/of with member expression LHS
+    .{
+        .source =
+        \\var x = {};
+        \\for (x.last in {a: 1, b: 2, c: 3});
+        \\x.last;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .string = "c" } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       create_object 0
+        \\  %1: [  1..1  ]                       set_binding @0 ("x"), %0
+        \\  %2: [  2..27 ]                       undefined
+        \\  %3: [  3..13 ]                       create_object 3
+        \\  %4: [  4..5  ]                       number 1
+        \\  %5: [  5..5  ]                       object_set %3, @1 ("a"), %4
+        \\  %6: [  6..7  ]                       number 2
+        \\  %7: [  7..7  ]                       object_set %3, @2 ("b"), %6
+        \\  %8: [  8..9  ]                       number 3
+        \\  %9: [  9..9  ]                       object_set %3, @3 ("c"), %8
+        \\ %10: [ 10..11 ]                       is_nullish %3
+        \\ %11: [ 11..11 ]                       br_cond %10, %26, %12
+        \\ %12: [ 12..12 ]                       label
+        \\ %13: [ 13..23 ]                       get_for_in_iterator %3
+        \\ %14: [ 14..14 ]                       br %15, %2
+        \\ %15: [ 15..25 ]                       label
+        \\ %16: [ 16..22 ]                       iterator_step_value %13
+        \\ %17: [ 17..18 ]                       iterator_is_done %13
+        \\ %18: [ 18..19 ]                       logical_not %17
+        \\ %19: [ 19..19 ]                       br_cond %18, %20, %24
+        \\ %20: [ 20..20 ]                       label
+        \\ %21: [ 21..22 ]                       get_binding @0 ("x")
+        \\ %22: [ 22..22 ]                       set_property %21, @4 ("last"), %16
+        \\ %23: [ 23..23 ]                       br %15, %2
+        \\ %24: [ 24..24 ]                       label
+        \\ %25: [ 25..25 ]                       br %28, %15
+        \\ %26: [ 26..26 ]                       label
+        \\ %27: [ 27..27 ]                       br %28, %2
+        \\ %28: [ 28..28 ]                       label
+        \\ %29: [ 29..30 ]                       get_binding @0 ("x")
+        \\ %30: [ 30..31 ]                       get_property %29, @4 ("last")
+        \\ %31: [ 31..31 ]                       return %30
+        \\
+        \\Bytecode (test)
+        \\   0: 12 00 00 00 00 00 00             create_object r0, 0
+        \\   7: 50 00 00 00 00 00 00             set_binding @0 ("x"), r0
+        \\  14: 03 00 00                         load_undefined r0
+        \\  17: 12 01 00 03 00 00 00             create_object r1, 3
+        \\  24: 07 02 00 01                      load_number_i8 r2, 1
+        \\  28: 13 01 00 01 00 00 00 02 00       object_set r1, @1 ("a"), r2
+        \\  37: 07 02 00 02                      load_number_i8 r2, 2
+        \\  41: 13 01 00 02 00 00 00 02 00       object_set r1, @2 ("b"), r2
+        \\  50: 07 02 00 03                      load_number_i8 r2, 3
+        \\  54: 13 01 00 03 00 00 00 02 00       object_set r1, @3 ("c"), r2
+        \\  63: 27 02 00 01 00                   is_nullish r2, r1
+        \\  68: 01 02 00 05 00 00 00             jump_if_true r2, 5
+        \\  75: 00 05 00 00 00                   jump 5
+        \\  80: 00 41 00 00 00                   jump 65
+        \\  85: 71 02 00 01 00                   get_for_in_iterator r2, r1
+        \\  90: 0c 01 00 00 00                   move r1, r0
+        \\  95: 73 03 00 02 00                   iterator_step_value r3, r2
+        \\ 100: 76 04 00 02 00                   iterator_is_done r4, r2
+        \\ 105: 26 05 00 04 00                   logical_not r5, r4
+        \\ 110: 01 05 00 05 00 00 00             jump_if_true r5, 5
+        \\ 117: 00 1c 00 00 00                   jump 28
+        \\ 122: 4b 04 00 00 00 00 00             get_binding r4, @0 ("x")
+        \\ 129: 52 04 00 03 00 04 00 00 00 00 00 set_property r4, r3, @4 ("last"), @0
+        \\ 140: 0c 01 00 00 00                   move r1, r0
+        \\ 145: 00 c9 ff ff ff                   jump -55
+        \\ 150: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\ 157: 4c 01 00 00 00 04 00 00 00 00 00 get_property r1, r0, @4 ("last"), @0
+        \\ 168: 7a 01 00                         return r1
+        \\
+        ,
+    },
+
+    // With statement
+    .{
+        .source =
+        \\var o = {x: 1};
+        \\with (o) { x }
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 1 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..3  ]                       create_object 1
+        \\  %1: [  1..2  ]                       number 1
+        \\  %2: [  2..2  ]                       object_set %0, @0 ("x"), %1
+        \\  %3: [  3..3  ]                       set_binding @1 ("o"), %0
+        \\  %4: [  4..5  ]                       get_binding @1 ("o")
+        \\  %5: [  5..6  ]                       to_object %4
+        \\  %6: [  6..6  ]                       push_with_scope %5
+        \\  %7: [  7..9  ]                       get_binding @0 ("x")
+        \\  %8: [  8..8  ]                       pop_scope
+        \\  %9: [  9..9  ]                       return %7
+        \\
+        \\Bytecode (test)
+        \\   0: 12 00 00 01 00 00 00             create_object r0, 1
+        \\   7: 07 01 00 01                      load_number_i8 r1, 1
+        \\  11: 13 00 00 00 00 00 00 01 00       object_set r0, @0 ("x"), r1
+        \\  20: 50 01 00 00 00 00 00             set_binding @1 ("o"), r0
+        \\  27: 4b 00 00 01 00 00 00             get_binding r0, @1 ("o")
+        \\  34: 21 01 00 00 00                   to_object r1, r0
+        \\  39: 44 01 00                         push_with_scope r1
+        \\  42: 4b 00 00 00 00 00 00             get_binding r0, @0 ("x")
+        \\  49: 45                               pop_scope
+        \\  50: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // Optional expression
+    .{
+        .source =
+        \\var o = {a: {b: 123}};
+        \\o.x?.y ?? o.a?.["b"];
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 123 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..5  ]                       create_object 1
+        \\  %1: [  1..4  ]                       create_object 1
+        \\  %2: [  2..3  ]                       number 123
+        \\  %3: [  3..3  ]                       object_set %1, @1 ("b"), %2
+        \\  %4: [  4..4  ]                       object_set %0, @0 ("a"), %1
+        \\  %5: [  5..5  ]                       set_binding @2 ("o"), %0
+        \\  %6: [  6..7  ]                       get_binding @2 ("o")
+        \\  %7: [  7..11 ]                       get_property %6, @3 ("x")
+        \\  %8: [  8..9  ]                       is_nullish %7
+        \\  %9: [  9..9  ]                       br_cond %8, %13, %10
+        \\ %10: [ 10..10 ]                       label
+        \\ %11: [ 11..12 ]                       get_property %7, @4 ("y")
+        \\ %12: [ 12..12 ]                       br %16, %11
+        \\ %13: [ 13..13 ]                       label
+        \\ %14: [ 14..15 ]                       undefined
+        \\ %15: [ 15..15 ]                       br %16, %14
+        \\ %16: [ 16..20 ]                       label
+        \\ %17: [ 17..18 ]                       is_nullish %16
+        \\ %18: [ 18..18 ]                       br_cond %17, %21, %19
+        \\ %19: [ 19..19 ]                       label
+        \\ %20: [ 20..20 ]                       br %34, %16
+        \\ %21: [ 21..21 ]                       label
+        \\ %22: [ 22..23 ]                       get_binding @2 ("o")
+        \\ %23: [ 23..27 ]                       get_property %22, @0 ("a")
+        \\ %24: [ 24..25 ]                       is_nullish %23
+        \\ %25: [ 25..25 ]                       br_cond %24, %29, %26
+        \\ %26: [ 26..26 ]                       label
+        \\ %27: [ 27..28 ]                       get_property %23, @1 ("b")
+        \\ %28: [ 28..28 ]                       br %32, %27
+        \\ %29: [ 29..29 ]                       label
+        \\ %30: [ 30..31 ]                       undefined
+        \\ %31: [ 31..31 ]                       br %32, %30
+        \\ %32: [ 32..33 ]                       label
+        \\ %33: [ 33..33 ]                       br %34, %32
+        \\ %34: [ 34..35 ]                       label
+        \\ %35: [ 35..35 ]                       return %34
+        \\
+        \\Bytecode (test)
+        \\   0: 12 00 00 01 00 00 00             create_object r0, 1
+        \\   7: 12 01 00 01 00 00 00             create_object r1, 1
+        \\  14: 07 02 00 7b                      load_number_i8 r2, 123
+        \\  18: 13 01 00 01 00 00 00 02 00       object_set r1, @1 ("b"), r2
+        \\  27: 13 00 00 00 00 00 00 01 00       object_set r0, @0 ("a"), r1
+        \\  36: 50 02 00 00 00 00 00             set_binding @2 ("o"), r0
+        \\  43: 4b 00 00 02 00 00 00             get_binding r0, @2 ("o")
+        \\  50: 4c 01 00 00 00 03 00 00 00 00 00 get_property r1, r0, @3 ("x"), @0
+        \\  61: 27 00 00 01 00                   is_nullish r0, r1
+        \\  66: 01 00 00 05 00 00 00             jump_if_true r0, 5
+        \\  73: 00 08 00 00 00                   jump 8
+        \\  78: 03 00 00                         load_undefined r0
+        \\  81: 00 0b 00 00 00                   jump 11
+        \\  86: 4c 00 00 01 00 04 00 00 00 01 00 get_property r0, r1, @4 ("y"), @1
+        \\  97: 27 01 00 00 00                   is_nullish r1, r0
+        \\ 102: 01 01 00 05 00 00 00             jump_if_true r1, 5
+        \\ 109: 00 3b 00 00 00                   jump 59
+        \\ 114: 4b 00 00 02 00 00 00             get_binding r0, @2 ("o")
+        \\ 121: 4c 01 00 00 00 00 00 00 00 02 00 get_property r1, r0, @0 ("a"), @2
+        \\ 132: 27 00 00 01 00                   is_nullish r0, r1
+        \\ 137: 01 00 00 05 00 00 00             jump_if_true r0, 5
+        \\ 144: 00 08 00 00 00                   jump 8
+        \\ 149: 03 00 00                         load_undefined r0
+        \\ 152: 00 0b 00 00 00                   jump 11
+        \\ 157: 4c 00 00 01 00 01 00 00 00 03 00 get_property r0, r1, @1 ("b"), @3
+        \\ 168: 00 00 00 00 00                   jump 0
+        \\ 173: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // Template literal
+    .{
+        .source =
+        \\var empty = ``;
+        \\`${empty}a${"b"}c`;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .string = "abc" } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       string @0 ("")
+        \\  %1: [  1..1  ]                       set_binding @1 ("empty"), %0
+        \\  %2: [  2..3  ]                       get_binding @1 ("empty")
+        \\  %3: [  3..5  ]                       to_string %2
+        \\  %4: [  4..5  ]                       string @2 ("a")
+        \\  %5: [  5..7  ]                       add %3, %4
+        \\  %6: [  6..7  ]                       string @3 ("b")
+        \\  %7: [  7..9  ]                       add %5, %6
+        \\  %8: [  8..9  ]                       string @4 ("c")
+        \\  %9: [  9..10 ]                       add %7, %8
+        \\ %10: [ 10..10 ]                       return %9
+        \\
+        \\Bytecode (test)
+        \\   0: 0a 00 00 00 00 00 00             load_string r0, @0 ("")
+        \\   7: 50 01 00 00 00 00 00             set_binding @1 ("empty"), r0
+        \\  14: 4b 00 00 01 00 00 00             get_binding r0, @1 ("empty")
+        \\  21: 20 01 00 00 00                   to_string r1, r0
+        \\  26: 0a 00 00 02 00 00 00             load_string r0, @2 ("a")
+        \\  33: 2b 02 00 01 00 00 00             add r2, r1, r0
+        \\  40: 0a 00 00 03 00 00 00             load_string r0, @3 ("b")
+        \\  47: 2b 01 00 02 00 00 00             add r1, r2, r0
+        \\  54: 0a 00 00 04 00 00 00             load_string r0, @4 ("c")
+        \\  61: 2b 02 00 01 00 00 00             add r2, r1, r0
+        \\  68: 7a 02 00                         return r2
+        \\
+        ,
+    },
+
+    // Tagged template
+    .{
+        .source =
+        \\String.raw`a${"b"}c`;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .string = "abc" } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..14 ]                       get_binding @0 ("String")
+        \\  %1: [  1..14 ]                       get_property %0, @1 ("raw")
+        \\  %2: [  2..12 ]                       create_array 2
+        \\  %3: [  3..4  ]                       string @2 ("a")
+        \\  %4: [  4..4  ]                       array_push %2, %3
+        \\  %5: [  5..6  ]                       string @3 ("c")
+        \\  %6: [  6..6  ]                       array_push %2, %5
+        \\  %7: [  7..12 ]                       create_array 2
+        \\  %8: [  8..9  ]                       string @2 ("a")
+        \\  %9: [  9..9  ]                       array_push %7, %8
+        \\ %10: [ 10..11 ]                       string @3 ("c")
+        \\ %11: [ 11..11 ]                       array_push %7, %10
+        \\ %12: [ 12..14 ]                       get_template_object %2, %7, 0
+        \\ %13: [ 13..14 ]                       string @4 ("b")
+        \\ %14: [ 14..15 ]                       call %1, %0, [%12, %13]
+        \\ %15: [ 15..15 ]                       return %14
+        \\
+        \\Bytecode (test)
+        \\   0: 4b 00 00 00 00 00 00             get_binding r0, @0 ("String")
+        \\   7: 4c 01 00 00 00 01 00 00 00 00 00 get_property r1, r0, @1 ("raw"), @0
+        \\  18: 0d 02 00 02 00 00 00             create_array r2, 2
+        \\  25: 0a 03 00 02 00 00 00             load_string r3, @2 ("a")
+        \\  32: 10 02 00 03 00 00 00 00 00       array_set r2, r3, 0
+        \\  41: 0a 03 00 03 00 00 00             load_string r3, @3 ("c")
+        \\  48: 10 02 00 03 00 01 00 00 00       array_set r2, r3, 1
+        \\  57: 0d 03 00 02 00 00 00             create_array r3, 2
+        \\  64: 0a 04 00 02 00 00 00             load_string r4, @2 ("a")
+        \\  71: 10 03 00 04 00 00 00 00 00       array_set r3, r4, 0
+        \\  80: 0a 04 00 03 00 00 00             load_string r4, @3 ("c")
+        \\  87: 10 03 00 04 00 01 00 00 00       array_set r3, r4, 1
+        \\  96: 6e 04 00 02 00 03 00 00 00       get_template_object r4, r2, r3, 0
+        \\ 105: 0a 02 00 04 00 00 00             load_string r2, @4 ("b")
+        \\ 112: 67 03 00 01 00 00 00 04 00 02 00 call_property2 r3, r1, r0, r4, r2
+        \\ 123: 7a 03 00                         return r3
+        \\
+        ,
+    },
+
+    // Functions
+    .{
+        .source =
+        \\var f = ({a}, b = 0, ...rest) => a + b + rest.length;
+        \\f({a: 1}, 2, 3, 4);
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 5 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       create_function @0
+        \\  %1: [  1..1  ]                       set_binding @0 ("f"), %0
+        \\  %2: [  2..9  ]                       get_binding @0 ("f")
+        \\  %3: [  3..9  ]                       create_object 1
+        \\  %4: [  4..5  ]                       number 1
+        \\  %5: [  5..5  ]                       object_set %3, @1 ("a"), %4
+        \\  %6: [  6..9  ]                       number 2
+        \\  %7: [  7..9  ]                       number 3
+        \\  %8: [  8..9  ]                       number 4
+        \\  %9: [  9..10 ]                       call %2, none, [%3, %6, %7, %8]
+        \\ %10: [ 10..10 ]                       return %9
+        \\
+        \\Bytecode (test)
+        \\   0: 7e 00 00 00 00                   create_function r0, @0
+        \\   5: 50 00 00 00 00 00 00             set_binding @0 ("f"), r0
+        \\  12: 4b 00 00 00 00 00 00             get_binding r0, @0 ("f")
+        \\  19: 12 01 00 01 00 00 00             create_object r1, 1
+        \\  26: 07 02 00 01                      load_number_i8 r2, 1
+        \\  30: 13 01 00 01 00 00 00 02 00       object_set r1, @1 ("a"), r2
+        \\  39: 07 02 00 02                      load_number_i8 r2, 2
+        \\  43: 07 03 00 03                      load_number_i8 r3, 3
+        \\  47: 07 04 00 04                      load_number_i8 r4, 4
+        \\  51: 0d 06 00 00 00 00 00             create_array r6, 0
+        \\  58: 0e 06 00 01 00                   array_push r6, r1
+        \\  63: 0e 06 00 02 00                   array_push r6, r2
+        \\  68: 0e 06 00 03 00                   array_push r6, r3
+        \\  73: 0e 06 00 04 00                   array_push r6, r4
+        \\  78: 60 05 00 00 00 06 00             call r5, r0, r6
+        \\  85: 7a 05 00                         return r5
+        \\
+        \\IR (f)
+        \\  %0: [  0..0  ]                       push_scope
+        \\  %1: [  1..1  ]                       create_mutable_binding @0 ("a")
+        \\  %2: [  2..2  ]                       create_mutable_binding @1 ("b")
+        \\  %3: [  3..3  ]                       create_mutable_binding @2 ("rest")
+        \\  %4: [  4..5  ]                       get_argument 0
+        \\  %5: [  5..6  ]                       to_object %4
+        \\  %6: [  6..7  ]                       get_property %5, @0 ("a")
+        \\  %7: [  7..7  ]                       initialize_binding @0 ("a"), %6
+        \\  %8: [  8..16 ]                       get_argument 1
+        \\  %9: [  9..10 ]                       undefined
+        \\ %10: [ 10..11 ]                       eq_strict %8, %9
+        \\ %11: [ 11..11 ]                       br_cond %10, %12, %15
+        \\ %12: [ 12..12 ]                       label
+        \\ %13: [ 13..14 ]                       number 0
+        \\ %14: [ 14..14 ]                       br %17, %13
+        \\ %15: [ 15..15 ]                       label
+        \\ %16: [ 16..16 ]                       br %17, %8
+        \\ %17: [ 17..18 ]                       label
+        \\ %18: [ 18..18 ]                       initialize_binding @1 ("b"), %17
+        \\ %19: [ 19..20 ]                       get_rest_arguments 2
+        \\ %20: [ 20..20 ]                       initialize_binding @2 ("rest"), %19
+        \\ %21: [ 21..21 ]                       push_var_scope
+        \\ %22: [ 22..22 ]                       push_scope
+        \\ %23: [ 23..25 ]                       get_binding @0 ("a")
+        \\ %24: [ 24..25 ]                       get_binding @1 ("b")
+        \\ %25: [ 25..28 ]                       add %23, %24
+        \\ %26: [ 26..27 ]                       get_binding @2 ("rest")
+        \\ %27: [ 27..28 ]                       get_property %26, @3 ("length")
+        \\ %28: [ 28..29 ]                       add %25, %27
+        \\ %29: [ 29..29 ]                       return %28
+        \\ %30: [ 30..30 ] dead                  return none
+        \\
+        \\Bytecode (f)
+        \\   0: 42                               push_scope
+        \\   1: 47 00 00 00 00                   create_mutable_binding @0 ("a")
+        \\   6: 47 01 00 00 00                   create_mutable_binding @1 ("b")
+        \\  11: 47 02 00 00 00                   create_mutable_binding @2 ("rest")
+        \\  16: 83 00 00 00 00                   get_argument r0, 0
+        \\  21: 21 01 00 00 00                   to_object r1, r0
+        \\  26: 4c 00 00 01 00 00 00 00 00 00 00 get_property r0, r1, @0 ("a"), @0
+        \\  37: 49 00 00 00 00 00 00             initialize_binding @0 ("a"), r0
+        \\  44: 83 00 00 01 00                   get_argument r0, 1
+        \\  49: 03 01 00                         load_undefined r1
+        \\  52: 3f 02 00 00 00 01 00             eq_strict r2, r0, r1
+        \\  59: 01 02 00 05 00 00 00             jump_if_true r2, 5
+        \\  66: 00 0e 00 00 00                   jump 14
+        \\  71: 07 01 00 00                      load_number_i8 r1, 0
+        \\  75: 0c 00 00 01 00                   move r0, r1
+        \\  80: 00 00 00 00 00                   jump 0
+        \\  85: 49 01 00 00 00 00 00             initialize_binding @1 ("b"), r0
+        \\  92: 84 00 00 02 00                   get_rest_arguments r0, 2
+        \\  97: 49 02 00 00 00 00 00             initialize_binding @2 ("rest"), r0
+        \\ 104: 43                               push_var_scope
+        \\ 105: 42                               push_scope
+        \\ 106: 4b 00 00 00 00 00 00             get_binding r0, @0 ("a")
+        \\ 113: 4b 01 00 01 00 00 00             get_binding r1, @1 ("b")
+        \\ 120: 2b 02 00 00 00 01 00             add r2, r0, r1
+        \\ 127: 4b 00 00 02 00 00 00             get_binding r0, @2 ("rest")
+        \\ 134: 4c 01 00 00 00 03 00 00 00 01 00 get_property r1, r0, @3 ("length"), @1
+        \\ 145: 2b 00 00 02 00 01 00             add r0, r2, r1
+        \\ 152: 7a 00 00                         return r0
+        \\
+        ,
+    },
+
+    // Arguments object
+    .{
+        .source =
+        \\function mapped(a) {
+        \\  a = 99;
+        \\  return arguments[0];
+        \\}
+        \\function unmapped(a) {
+        \\  "use strict";
+        \\  a = 99;
+        \\  return arguments[0];
+        \\}
+        \\mapped(1) - unmapped(1);
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 98 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..2  ]                       get_binding @0 ("mapped")
+        \\  %1: [  1..2  ]                       number 1
+        \\  %2: [  2..6  ]                       call %0, none, [%1]
+        \\  %3: [  3..5  ]                       get_binding @1 ("unmapped")
+        \\  %4: [  4..5  ]                       number 1
+        \\  %5: [  5..6  ]                       call %3, none, [%4]
+        \\  %6: [  6..7  ]                       sub %2, %5
+        \\  %7: [  7..7  ]                       return %6
+        \\
+        \\Bytecode (test)
+        \\   0: 4b 00 00 00 00 00 00             get_binding r0, @0 ("mapped")
+        \\   7: 07 01 00 01                      load_number_i8 r1, 1
+        \\  11: 62 02 00 00 00 01 00             call1 r2, r0, r1
+        \\  18: 4b 00 00 01 00 00 00             get_binding r0, @1 ("unmapped")
+        \\  25: 07 01 00 01                      load_number_i8 r1, 1
+        \\  29: 62 03 00 00 00 01 00             call1 r3, r0, r1
+        \\  36: 2c 00 00 02 00 03 00             sub r0, r2, r3
+        \\  43: 7a 00 00                         return r0
+        \\
+        \\IR (mapped)
+        \\  %0: [  0..0  ]                       create_mutable_binding @0 ("a")
+        \\  %1: [  1..3  ]                       create_mapped_arguments_object
+        \\  %2: [  2..2  ]                       create_mutable_binding @1 ("arguments")
+        \\  %3: [  3..3  ]                       initialize_binding @1 ("arguments"), %1
+        \\  %4: [  4..5  ]                       get_argument 0
+        \\  %5: [  5..5  ]                       initialize_binding @0 ("a"), %4
+        \\  %6: [  6..6  ]                       push_scope
+        \\  %7: [  7..8  ]                       number 99
+        \\  %8: [  8..8  ]                       set_binding @0 ("a"), %7
+        \\  %9: [  9..10 ]                       get_binding @1 ("arguments")
+        \\ %10: [ 10..11 ]                       get_property_indexed %9, 0
+        \\ %11: [ 11..11 ]                       return %10
+        \\ %12: [ 12..12 ] dead                  return none
+        \\
+        \\Bytecode (mapped)
+        \\   0: 47 00 00 00 00                   create_mutable_binding @0 ("a")
+        \\   5: 82 00 00                         create_mapped_arguments_object r0
+        \\   8: 47 01 00 00 00                   create_mutable_binding @1 ("arguments")
+        \\  13: 49 01 00 00 00 00 00             initialize_binding @1 ("arguments"), r0
+        \\  20: 83 00 00 00 00                   get_argument r0, 0
+        \\  25: 49 00 00 00 00 00 00             initialize_binding @0 ("a"), r0
+        \\  32: 42                               push_scope
+        \\  33: 07 00 00 63                      load_number_i8 r0, 99
+        \\  37: 50 00 00 00 00 00 00             set_binding @0 ("a"), r0
+        \\  44: 4b 00 00 01 00 00 00             get_binding r0, @1 ("arguments")
+        \\  51: 4e 01 00 00 00 00 00 00 00       get_property_indexed r1, r0, 0
+        \\  60: 7a 01 00                         return r1
+        \\
+        \\IR (unmapped)
+        \\  %0: [  0..0  ]                       create_mutable_binding @0 ("a")
+        \\  %1: [  1..3  ]                       create_unmapped_arguments_object
+        \\  %2: [  2..2  ]                       create_immutable_binding @1 ("arguments")
+        \\  %3: [  3..3  ]                       initialize_binding @1 ("arguments"), %1
+        \\  %4: [  4..5  ]                       get_argument 0
+        \\  %5: [  5..5  ]                       initialize_binding @0 ("a"), %4
+        \\  %6: [  6..6  ] dead                  string @2 ("use strict")
+        \\  %7: [  7..8  ]                       number 99
+        \\  %8: [  8..8  ]                       set_binding_strict @0 ("a"), %7
+        \\  %9: [  9..10 ]                       get_binding @1 ("arguments")
+        \\ %10: [ 10..11 ]                       get_property_indexed %9, 0
+        \\ %11: [ 11..11 ]                       return %10
+        \\ %12: [ 12..12 ] dead                  return none
+        \\
+        \\Bytecode (unmapped)
+        \\   0: 81 00 00                         create_unmapped_arguments_object r0
+        \\   3: 4f 01 00 00 00                   set_local l1, r0
+        \\   8: 83 00 00 00 00                   get_argument r0, 0
+        \\  13: 4f 00 00 00 00                   set_local l0, r0
+        \\  18: 07 00 00 63                      load_number_i8 r0, 99
+        \\  22: 4f 00 00 00 00                   set_local l0, r0
+        \\  27: 4a 00 00 01 00                   get_local r0, l1
+        \\  32: 4e 01 00 00 00 00 00 00 00       get_property_indexed r1, r0, 0
+        \\  41: 7a 01 00                         return r1
+        \\
+        ,
+    },
+
+    // Getter/setter
+    .{
+        .source =
+        \\var o = {
+        \\  get x() { return this._x; },
+        \\  set x(v) { this._x = v; },
+        \\};
+        \\o.x = 42;
+        \\o.x;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 42 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..7  ]                       create_object 2
+        \\  %1: [  1..2  ]                       create_function @0
+        \\  %2: [  2..3  ]                       as_getter %1
+        \\  %3: [  3..3  ]                       object_set %0, @0 ("x"), %2
+        \\  %4: [  4..5  ]                       create_function @1
+        \\  %5: [  5..6  ]                       as_setter %4
+        \\  %6: [  6..6  ]                       object_set %0, @0 ("x"), %5
+        \\  %7: [  7..7  ]                       set_binding @3 ("o"), %0
+        \\  %8: [  8..10 ]                       get_binding @3 ("o")
+        \\  %9: [  9..10 ]                       number 42
+        \\ %10: [ 10..10 ]                       set_property %8, @0 ("x"), %9
+        \\ %11: [ 11..12 ]                       get_binding @3 ("o")
+        \\ %12: [ 12..13 ]                       get_property %11, @0 ("x")
+        \\ %13: [ 13..13 ]                       return %12
+        \\
+        \\Bytecode (test)
+        \\   0: 12 00 00 02 00 00 00             create_object r0, 2
+        \\   7: 7e 01 00 00 00                   create_function r1, @0
+        \\  12: 0c 02 00 01 00                   move r2, r1
+        \\  17: 80 02 00 00 00                   set_home_object r2, r0
+        \\  22: 15 00 00 00 00 00 00 02 00       object_set_getter r0, @0 ("x"), r2
+        \\  31: 7e 01 00 01 00                   create_function r1, @1
+        \\  36: 0c 02 00 01 00                   move r2, r1
+        \\  41: 80 02 00 00 00                   set_home_object r2, r0
+        \\  46: 17 00 00 00 00 00 00 02 00       object_set_setter r0, @0 ("x"), r2
+        \\  55: 50 03 00 00 00 00 00             set_binding @3 ("o"), r0
+        \\  62: 4b 00 00 03 00 00 00             get_binding r0, @3 ("o")
+        \\  69: 07 01 00 2a                      load_number_i8 r1, 42
+        \\  73: 52 00 00 01 00 00 00 00 00 00 00 set_property r0, r1, @0 ("x"), @0
+        \\  84: 4b 00 00 03 00 00 00             get_binding r0, @3 ("o")
+        \\  91: 4c 01 00 00 00 00 00 00 00 00 00 get_property r1, r0, @0 ("x"), @0
+        \\ 102: 7a 01 00                         return r1
+        \\
+        \\IR (get x)
+        \\  %0: [  0..0  ]                       push_scope
+        \\  %1: [  1..2  ]                       this
+        \\  %2: [  2..3  ]                       get_property %1, @0 ("_x")
+        \\  %3: [  3..3  ]                       return %2
+        \\  %4: [  4..4  ] dead                  return none
+        \\
+        \\Bytecode (get x)
+        \\   0: 42                               push_scope
+        \\   1: 1c 00 00                         resolve_this_binding r0
+        \\   4: 4c 01 00 00 00 00 00 00 00 00 00 get_property r1, r0, @0 ("_x"), @0
+        \\  15: 7a 01 00                         return r1
+        \\
+        \\IR (set x)
+        \\  %0: [  0..0  ]                       create_mutable_binding @0 ("v")
+        \\  %1: [  1..2  ]                       get_argument 0
+        \\  %2: [  2..2  ]                       initialize_binding @0 ("v"), %1
+        \\  %3: [  3..3  ]                       push_scope
+        \\  %4: [  4..6  ]                       this
+        \\  %5: [  5..6  ]                       get_binding @0 ("v")
+        \\  %6: [  6..6  ]                       set_property %4, @1 ("_x"), %5
+        \\  %7: [  7..7  ]                       return none
+        \\
+        \\Bytecode (set x)
+        \\   0: 83 00 00 00 00                   get_argument r0, 0
+        \\   5: 4f 00 00 00 00                   set_local l0, r0
+        \\  10: 42                               push_scope
+        \\  11: 1c 00 00                         resolve_this_binding r0
+        \\  14: 4a 01 00 00 00                   get_local r1, l0
+        \\  19: 52 00 00 01 00 01 00 00 00 00 00 set_property r0, r1, @1 ("_x"), @0
+        \\  30: 7a ff ff                         return
+        \\
+        ,
+    },
+
+    // Generator
+    .{
+        .source =
+        \\function* h() {
+        \\  yield 4;
+        \\  yield 5;
+        \\}
+        \\function* g() {
+        \\  yield 1;
+        \\  yield 2;
+        \\  yield 3;
+        \\  yield* h();
+        \\}
+        \\function f() {
+        \\  var gen = g();
+        \\  var sum = 0;
+        \\  while (true) {
+        \\    var result = gen.next();
+        \\    if (result.done) break;
+        \\    sum += result.value;
+        \\  }
+        \\  return sum;
+        \\}
+        \\f();
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 15 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       get_binding @0 ("f")
+        \\  %1: [  1..2  ]                       call %0, none, []
+        \\  %2: [  2..2  ]                       return %1
+        \\
+        \\Bytecode (test)
+        \\   0: 4b 00 00 00 00 00 00             get_binding r0, @0 ("f")
+        \\   7: 61 01 00 00 00                   call0 r1, r0
+        \\  12: 7a 01 00                         return r1
+        \\
+        \\IR (f)
+        \\  %0: [  0..0  ]                       create_var_binding @0 ("gen")
+        \\  %1: [  1..1  ]                       create_var_binding @1 ("sum")
+        \\  %2: [  2..2  ]                       create_var_binding @2 ("result")
+        \\  %3: [  3..3  ]                       push_scope
+        \\  %4: [  4..5  ]                       get_binding @3 ("g")
+        \\  %5: [  5..6  ]                       call %4, none, []
+        \\  %6: [  6..6  ]                       set_binding @0 ("gen"), %5
+        \\  %7: [  7..8  ]                       number 0
+        \\  %8: [  8..8  ]                       set_binding @1 ("sum"), %7
+        \\  %9: [  9..36 ]                       undefined
+        \\ %10: [ 10..10 ]                       br %11, %9
+        \\ %11: [ 11..38 ]                       label
+        \\ %12: [ 12..13 ]                       true
+        \\ %13: [ 13..13 ]                       br_cond %12, %14, %37
+        \\ %14: [ 14..14 ]                       label
+        \\ %15: [ 15..17 ]                       get_binding @0 ("gen")
+        \\ %16: [ 16..17 ]                       get_property %15, @4 ("next")
+        \\ %17: [ 17..18 ]                       call %16, %15, []
+        \\ %18: [ 18..18 ]                       set_binding @2 ("result"), %17
+        \\ %19: [ 19..20 ]                       get_binding @2 ("result")
+        \\ %20: [ 20..21 ]                       get_property %19, @5 ("done")
+        \\ %21: [ 21..22 ]                       to_boolean %20
+        \\ %22: [ 22..22 ]                       br_cond %21, %23, %27
+        \\ %23: [ 23..23 ]                       label
+        \\ %24: [ 24..24 ]                       br %39, %9
+        \\ %25: [ 25..26 ] dead                  undefined
+        \\ %26: [ 26..26 ] dead                  br %30, %25
+        \\ %27: [ 27..27 ]                       label
+        \\ %28: [ 28..29 ]                       undefined
+        \\ %29: [ 29..29 ]                       br %30, %28
+        \\ %30: [ 30..30 ]                       label
+        \\ %31: [ 31..34 ]                       get_binding @1 ("sum")
+        \\ %32: [ 32..33 ]                       get_binding @2 ("result")
+        \\ %33: [ 33..34 ]                       get_property %32, @6 ("value")
+        \\ %34: [ 34..35 ]                       add %31, %33
+        \\ %35: [ 35..36 ]                       set_binding @1 ("sum"), %34
+        \\ %36: [ 36..36 ]                       br %11, %35
+        \\ %37: [ 37..37 ]                       label
+        \\ %38: [ 38..38 ]                       br %39, %11
+        \\ %39: [ 39..39 ]                       label
+        \\ %40: [ 40..41 ]                       get_binding @1 ("sum")
+        \\ %41: [ 41..41 ]                       return %40
+        \\ %42: [ 42..42 ] dead                  return none
+        \\
+        \\Bytecode (f)
+        \\   0: 42                               push_scope
+        \\   1: 4b 00 00 03 00 00 00             get_binding r0, @3 ("g")
+        \\   8: 61 01 00 00 00                   call0 r1, r0
+        \\  13: 4f 00 00 01 00                   set_local l0, r1
+        \\  18: 07 00 00 00                      load_number_i8 r0, 0
+        \\  22: 4f 01 00 00 00                   set_local l1, r0
+        \\  27: 03 00 00                         load_undefined r0
+        \\  30: 0c 01 00 00 00                   move r1, r0
+        \\  35: 05 02 00                         load_true r2
+        \\  38: 01 02 00 05 00 00 00             jump_if_true r2, 5
+        \\  45: 00 75 00 00 00                   jump 117
+        \\  50: 4a 02 00 00 00                   get_local r2, l0
+        \\  55: 4c 03 00 02 00 04 00 00 00 00 00 get_property r3, r2, @4 ("next"), @0
+        \\  66: 65 04 00 03 00 02 00             call_property0 r4, r3, r2
+        \\  73: 4f 02 00 04 00                   set_local l2, r4
+        \\  78: 4a 02 00 02 00                   get_local r2, l2
+        \\  83: 4c 03 00 02 00 05 00 00 00 01 00 get_property r3, r2, @5 ("done"), @1
+        \\  94: 1d 02 00 03 00                   to_boolean r2, r3
+        \\  99: 01 02 00 05 00 00 00             jump_if_true r2, 5
+        \\ 106: 00 05 00 00 00                   jump 5
+        \\ 111: 00 33 00 00 00                   jump 51
+        \\ 116: 03 02 00                         load_undefined r2
+        \\ 119: 4a 02 00 01 00                   get_local r2, l1
+        \\ 124: 4a 03 00 02 00                   get_local r3, l2
+        \\ 129: 4c 04 00 03 00 06 00 00 00 02 00 get_property r4, r3, @6 ("value"), @2
+        \\ 140: 2b 03 00 02 00 04 00             add r3, r2, r4
+        \\ 147: 4f 01 00 03 00                   set_local l1, r3
+        \\ 152: 0c 02 00 03 00                   move r2, r3
+        \\ 157: 0c 01 00 02 00                   move r1, r2
+        \\ 162: 00 7c ff ff ff                   jump -132
+        \\ 167: 4a 00 00 01 00                   get_local r0, l1
+        \\ 172: 7a 00 00                         return r0
+        \\
+        \\IR (g)
+        \\  %0: [  0..0  ]                       push_scope
+        \\  %1: [  1..1  ]                       yield none
+        \\  %2: [  2..3  ]                       number 1
+        \\  %3: [  3..3  ]                       yield %2
+        \\  %4: [  4..5  ]                       number 2
+        \\  %5: [  5..5  ]                       yield %4
+        \\  %6: [  6..7  ]                       number 3
+        \\  %7: [  7..7  ]                       yield %6
+        \\  %8: [  8..9  ]                       get_binding @0 ("h")
+        \\  %9: [  9..10 ]                       call %8, none, []
+        \\ %10: [ 10..11 ]                       get_iterator %9
+        \\ %11: [ 11..11 ]                       yield_star %10
+        \\ %12: [ 12..12 ]                       return none
+        \\
+        \\Bytecode (g)
+        \\   0: 42                               push_scope
+        \\   1: 7c ff ff ff ff                   yield
+        \\   6: 07 00 00 01                      load_number_i8 r0, 1
+        \\  10: 7c 01 00 00 00                   yield r1, r0
+        \\  15: 07 00 00 02                      load_number_i8 r0, 2
+        \\  19: 7c 01 00 00 00                   yield r1, r0
+        \\  24: 07 00 00 03                      load_number_i8 r0, 3
+        \\  28: 7c 01 00 00 00                   yield r1, r0
+        \\  33: 4b 00 00 00 00 00 00             get_binding r0, @0 ("h")
+        \\  40: 61 01 00 00 00                   call0 r1, r0
+        \\  45: 6f 00 00 01 00                   get_iterator r0, r1
+        \\  50: 03 01 00                         load_undefined r1
+        \\  53: 7d 01 00 00 00                   yield_star r1, r0
+        \\  58: 7a ff ff                         return
+        \\
+        \\IR (h)
+        \\  %0: [  0..0  ]                       push_scope
+        \\  %1: [  1..1  ]                       yield none
+        \\  %2: [  2..3  ]                       number 4
+        \\  %3: [  3..3  ]                       yield %2
+        \\  %4: [  4..5  ]                       number 5
+        \\  %5: [  5..5  ]                       yield %4
+        \\  %6: [  6..6  ]                       return none
+        \\
+        \\Bytecode (h)
+        \\   0: 42                               push_scope
+        \\   1: 7c ff ff ff ff                   yield
+        \\   6: 07 00 00 04                      load_number_i8 r0, 4
+        \\  10: 7c 01 00 00 00                   yield r1, r0
+        \\  15: 07 00 00 05                      load_number_i8 r0, 5
+        \\  19: 7c 01 00 00 00                   yield r1, r0
+        \\  24: 7a ff ff                         return
+        \\
+        ,
+    },
+
+    // Async Generator
+    .{
+        .source =
+        \\async function* g() {
+        \\  yield 1;
+        \\  yield 2;
+        \\  yield 3;
+        \\}
+        \\async function f() {
+        \\  var gen = g();
+        \\  var a = await gen.next();
+        \\  var b = await gen.next();
+        \\  var c = await gen.next();
+        \\  return a.value + b.value + c.value;
+        \\}
+        \\f();
+        \\
+        ,
+        .expected_result = .{ .promise = .{ .fulfilled = .{ .number = 6 } } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       get_binding @0 ("f")
+        \\  %1: [  1..2  ]                       call %0, none, []
+        \\  %2: [  2..2  ]                       return %1
+        \\
+        \\Bytecode (test)
+        \\   0: 4b 00 00 00 00 00 00             get_binding r0, @0 ("f")
+        \\   7: 61 01 00 00 00                   call0 r1, r0
+        \\  12: 7a 01 00                         return r1
+        \\
+        \\IR (f)
+        \\  %0: [  0..0  ]                       create_var_binding @0 ("gen")
+        \\  %1: [  1..1  ]                       create_var_binding @1 ("a")
+        \\  %2: [  2..2  ]                       create_var_binding @2 ("b")
+        \\  %3: [  3..3  ]                       create_var_binding @3 ("c")
+        \\  %4: [  4..4  ]                       push_scope
+        \\  %5: [  5..6  ]                       get_binding @4 ("g")
+        \\  %6: [  6..7  ]                       call %5, none, []
+        \\  %7: [  7..7  ]                       set_binding @0 ("gen"), %6
+        \\  %8: [  8..10 ]                       get_binding @0 ("gen")
+        \\  %9: [  9..10 ]                       get_property %8, @5 ("next")
+        \\ %10: [ 10..11 ]                       call %9, %8, []
+        \\ %11: [ 11..12 ]                       await %10
+        \\ %12: [ 12..12 ]                       set_binding @1 ("a"), %11
+        \\ %13: [ 13..15 ]                       get_binding @0 ("gen")
+        \\ %14: [ 14..15 ]                       get_property %13, @5 ("next")
+        \\ %15: [ 15..16 ]                       call %14, %13, []
+        \\ %16: [ 16..17 ]                       await %15
+        \\ %17: [ 17..17 ]                       set_binding @2 ("b"), %16
+        \\ %18: [ 18..20 ]                       get_binding @0 ("gen")
+        \\ %19: [ 19..20 ]                       get_property %18, @5 ("next")
+        \\ %20: [ 20..21 ]                       call %19, %18, []
+        \\ %21: [ 21..22 ]                       await %20
+        \\ %22: [ 22..22 ]                       set_binding @3 ("c"), %21
+        \\ %23: [ 23..24 ]                       get_binding @1 ("a")
+        \\ %24: [ 24..27 ]                       get_property %23, @6 ("value")
+        \\ %25: [ 25..26 ]                       get_binding @2 ("b")
+        \\ %26: [ 26..27 ]                       get_property %25, @6 ("value")
+        \\ %27: [ 27..30 ]                       add %24, %26
+        \\ %28: [ 28..29 ]                       get_binding @3 ("c")
+        \\ %29: [ 29..30 ]                       get_property %28, @6 ("value")
+        \\ %30: [ 30..31 ]                       add %27, %29
+        \\ %31: [ 31..31 ]                       return %30
+        \\ %32: [ 32..32 ] dead                  return none
+        \\
+        \\Bytecode (f)
+        \\   0: 42                               push_scope
+        \\   1: 4b 00 00 04 00 00 00             get_binding r0, @4 ("g")
+        \\   8: 61 01 00 00 00                   call0 r1, r0
+        \\  13: 4f 00 00 01 00                   set_local l0, r1
+        \\  18: 4a 00 00 00 00                   get_local r0, l0
+        \\  23: 4c 01 00 00 00 05 00 00 00 00 00 get_property r1, r0, @5 ("next"), @0
+        \\  34: 65 02 00 01 00 00 00             call_property0 r2, r1, r0
+        \\  41: 7b 00 00 02 00                   await r0, r2
+        \\  46: 4f 01 00 00 00                   set_local l1, r0
+        \\  51: 4a 00 00 00 00                   get_local r0, l0
+        \\  56: 4c 01 00 00 00 05 00 00 00 01 00 get_property r1, r0, @5 ("next"), @1
+        \\  67: 65 02 00 01 00 00 00             call_property0 r2, r1, r0
+        \\  74: 7b 00 00 02 00                   await r0, r2
+        \\  79: 4f 02 00 00 00                   set_local l2, r0
+        \\  84: 4a 00 00 00 00                   get_local r0, l0
+        \\  89: 4c 01 00 00 00 05 00 00 00 02 00 get_property r1, r0, @5 ("next"), @2
+        \\ 100: 65 02 00 01 00 00 00             call_property0 r2, r1, r0
+        \\ 107: 7b 00 00 02 00                   await r0, r2
+        \\ 112: 4f 03 00 00 00                   set_local l3, r0
+        \\ 117: 4a 00 00 01 00                   get_local r0, l1
+        \\ 122: 4c 01 00 00 00 06 00 00 00 03 00 get_property r1, r0, @6 ("value"), @3
+        \\ 133: 4a 00 00 02 00                   get_local r0, l2
+        \\ 138: 4c 02 00 00 00 06 00 00 00 04 00 get_property r2, r0, @6 ("value"), @4
+        \\ 149: 2b 00 00 01 00 02 00             add r0, r1, r2
+        \\ 156: 4a 01 00 03 00                   get_local r1, l3
+        \\ 161: 4c 02 00 01 00 06 00 00 00 05 00 get_property r2, r1, @6 ("value"), @5
+        \\ 172: 2b 01 00 00 00 02 00             add r1, r0, r2
+        \\ 179: 7a 01 00                         return r1
+        \\
+        \\IR (g)
+        \\  %0: [  0..0  ]                       push_scope
+        \\  %1: [  1..1  ]                       yield none
+        \\  %2: [  2..3  ]                       number 1
+        \\  %3: [  3..3  ]                       yield %2
+        \\  %4: [  4..5  ]                       number 2
+        \\  %5: [  5..5  ]                       yield %4
+        \\  %6: [  6..7  ]                       number 3
+        \\  %7: [  7..7  ]                       yield %6
+        \\  %8: [  8..8  ]                       return none
+        \\
+        \\Bytecode (g)
+        \\   0: 42                               push_scope
+        \\   1: 7c ff ff ff ff                   yield
+        \\   6: 07 00 00 01                      load_number_i8 r0, 1
+        \\  10: 7c 01 00 00 00                   yield r1, r0
+        \\  15: 07 00 00 02                      load_number_i8 r0, 2
+        \\  19: 7c 01 00 00 00                   yield r1, r0
+        \\  24: 07 00 00 03                      load_number_i8 r0, 3
+        \\  28: 7c 01 00 00 00                   yield r1, r0
+        \\  33: 7a ff ff                         return
+        \\
+        ,
+    },
+
+    // Classes
+    .{
+        .source =
+        \\class Foo {
+        \\  #x;
+        \\  constructor(x) { this.#x = x; }
+        \\  getX() { return this.#x; }
+        \\}
+        \\class Bar extends Foo {
+        \\  constructor(x) { super(x); }
+        \\  getX() { return super.getX() + 1; }
+        \\}
+        \\var bar = new Bar(42);
+        \\bar.getX();
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 43 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..0  ]                       push_private_scope
+        \\  %1: [  1..3  ]                       create_private_element @1 ("x")
+        \\  %2: [  2..3  ]                       string @2 ("getX")
+        \\  %3: [  3..5  ]                       create_class @0, none, [%1, %2]
+        \\  %4: [  4..4  ]                       pop_private_scope
+        \\  %5: [  5..5  ]                       initialize_binding @0 ("Foo"), %3
+        \\  %6: [  6..9  ]                       get_binding @0 ("Foo")
+        \\  %7: [  7..7  ]                       push_private_scope
+        \\  %8: [  8..9  ]                       string @2 ("getX")
+        \\  %9: [  9..11 ]                       create_class @1, %6, [%8]
+        \\ %10: [ 10..10 ]                       pop_private_scope
+        \\ %11: [ 11..11 ]                       initialize_binding @3 ("Bar"), %9
+        \\ %12: [ 12..14 ]                       get_binding @3 ("Bar")
+        \\ %13: [ 13..14 ]                       number 42
+        \\ %14: [ 14..15 ]                       construct %12, [%13]
+        \\ %15: [ 15..15 ]                       set_binding @4 ("bar"), %14
+        \\ %16: [ 16..18 ]                       get_binding @4 ("bar")
+        \\ %17: [ 17..18 ]                       get_property %16, @2 ("getX")
+        \\ %18: [ 18..19 ]                       call %17, %16, []
+        \\ %19: [ 19..19 ]                       return %18
+        \\
+        \\Bytecode (test)
+        \\   0: 8d                               push_private_scope
+        \\   1: 8f 00 00 01 00 00 00             create_private_element r0, @1 ("x")
+        \\   8: 0a 01 00 02 00 00 00             load_string r1, @2 ("getX")
+        \\  15: 7f 02 00 00 00                   create_class r2, @0
+        \\  20: 8e                               pop_private_scope
+        \\  21: 49 00 00 00 00 02 00             initialize_binding @0 ("Foo"), r2
+        \\  28: 4b 00 00 00 00 00 00             get_binding r0, @0 ("Foo")
+        \\  35: 8d                               push_private_scope
+        \\  36: 0a 01 00 02 00 00 00             load_string r1, @2 ("getX")
+        \\  43: 7f 02 00 01 00                   create_class r2, @1
+        \\  48: 8e                               pop_private_scope
+        \\  49: 49 03 00 00 00 02 00             initialize_binding @3 ("Bar"), r2
+        \\  56: 4b 00 00 03 00 00 00             get_binding r0, @3 ("Bar")
+        \\  63: 07 01 00 2a                      load_number_i8 r1, 42
+        \\  67: 6c 02 00 00 00 01 00             construct1 r2, r0, r1
+        \\  74: 50 04 00 00 00 02 00             set_binding @4 ("bar"), r2
+        \\  81: 4b 00 00 04 00 00 00             get_binding r0, @4 ("bar")
+        \\  88: 4c 01 00 00 00 02 00 00 00 00 00 get_property r1, r0, @2 ("getX"), @0
+        \\  99: 65 02 00 01 00 00 00             call_property0 r2, r1, r0
+        \\ 106: 7a 02 00                         return r2
+        \\
+        \\IR (Bar)
+        \\  %0: [  0..0  ]                       create_mutable_binding @0 ("x")
+        \\  %1: [  1..2  ]                       get_argument 0
+        \\  %2: [  2..2  ]                       initialize_binding @0 ("x"), %1
+        \\  %3: [  3..4  ]                       get_binding @0 ("x")
+        \\  %4: [  4..4  ]                       super_call [%3]
+        \\  %5: [  5..5  ]                       return none
+        \\
+        \\Bytecode (Bar)
+        \\   0: 83 00 00 00 00                   get_argument r0, 0
+        \\   5: 4f 00 00 00 00                   set_local l0, r0
+        \\  10: 4a 00 00 00 00                   get_local r0, l0
+        \\  15: 0d 02 00 00 00 00 00             create_array r2, 0
+        \\  22: 0e 02 00 00 00                   array_push r2, r0
+        \\  27: 86 01 00 02 00                   super_call r1, r2
+        \\  32: 7a ff ff                         return
+        \\
+        \\IR (Foo)
+        \\  %0: [  0..0  ]                       create_mutable_binding @0 ("x")
+        \\  %1: [  1..2  ]                       get_argument 0
+        \\  %2: [  2..2  ]                       initialize_binding @0 ("x"), %1
+        \\  %3: [  3..5  ]                       this
+        \\  %4: [  4..5  ]                       get_binding @0 ("x")
+        \\  %5: [  5..5  ]                       set_private_element %3, @0 ("x"), %4
+        \\  %6: [  6..6  ]                       return none
+        \\
+        \\Bytecode (Foo)
+        \\   0: 83 00 00 00 00                   get_argument r0, 0
+        \\   5: 4f 00 00 00 00                   set_local l0, r0
+        \\  10: 1c 00 00                         resolve_this_binding r0
+        \\  13: 4a 01 00 00 00                   get_local r1, l0
+        \\  18: 92 00 00 00 00 00 00 01 00       set_private_element r0, @0 ("x"), r1
+        \\  27: 7a ff ff                         return
+        \\
+        \\IR (getX)
+        \\  %0: [  0..2  ]                       this
+        \\  %1: [  1..2  ]                       get_super_property @0 ("getX")
+        \\  %2: [  2..4  ]                       call %1, %0, []
+        \\  %3: [  3..4  ]                       number 1
+        \\  %4: [  4..5  ]                       add %2, %3
+        \\  %5: [  5..5  ]                       return %4
+        \\  %6: [  6..6  ] dead                  return none
+        \\
+        \\Bytecode (getX)
+        \\   0: 1c 00 00                         resolve_this_binding r0
+        \\   3: 87 01 00 00 00 00 00             get_super_property r1, @0 ("getX")
+        \\  10: 65 02 00 01 00 00 00             call_property0 r2, r1, r0
+        \\  17: 07 00 00 01                      load_number_i8 r0, 1
+        \\  21: 2b 01 00 02 00 00 00             add r1, r2, r0
+        \\  28: 7a 01 00                         return r1
+        \\
+        \\IR (getX)
+        \\  %0: [  0..1  ]                       this
+        \\  %1: [  1..2  ]                       get_private_element %0, @0 ("x")
+        \\  %2: [  2..2  ]                       return %1
+        \\  %3: [  3..3  ] dead                  return none
+        \\
+        \\Bytecode (getX)
+        \\   0: 1c 00 00                         resolve_this_binding r0
+        \\   3: 91 01 00 00 00 00 00 00 00       get_private_element r1, r0, @0 ("x")
+        \\  12: 7a 01 00                         return r1
+        \\
+        ,
+    },
+
+    // Call expression LHS
+    .{
+        .source =
+        \\var calls = 0;
+        \\var caught = 0;
+        \\function foo() { calls += 1; }
+        \\
+        \\try { foo() = 1; } catch { caught += 1; }
+        \\try { foo() += 1; } catch { caught += 1; }
+        \\try { foo()++; } catch { caught += 1; }
+        \\try { ++foo(); } catch { caught += 1; }
+        \\try { for (foo() in {a: 1}); } catch { caught += 1; }
+        \\
+        \\calls * 10 + caught;
+        \\
+        ,
+        .expected_result = .{ .value = .{ .number = 55 } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       number 0
+        \\  %1: [  1..1  ]                       set_binding @0 ("calls"), %0
+        \\  %2: [  2..3  ]                       number 0
+        \\  %3: [  3..3  ]                       set_binding @1 ("caught"), %2
+        \\  %4: [  4..11 ]                       label
+        \\  %5: [  5..6  ]                       get_binding @2 ("foo")
+        \\  %6: [  6..6  ]                       call %5, none, []
+        \\  %7: [  7..9  ]                       throw_reference_error
+        \\  %8: [  8..11 ]                       label
+        \\  %9: [  9..9  ] dead                  br %17, %7
+        \\ %10: [ 10..11 ]                       label
+        \\ %11: [ 11..11 ]                       exception_handler %4, %8, %10, 0
+        \\ %12: [ 12..14 ]                       get_binding @1 ("caught")
+        \\ %13: [ 13..14 ]                       number 1
+        \\ %14: [ 14..15 ]                       add %12, %13
+        \\ %15: [ 15..16 ]                       set_binding @1 ("caught"), %14
+        \\ %16: [ 16..16 ]                       br %17, %15
+        \\ %17: [ 17..17 ]                       label
+        \\ %18: [ 18..25 ]                       label
+        \\ %19: [ 19..20 ]                       get_binding @2 ("foo")
+        \\ %20: [ 20..20 ]                       call %19, none, []
+        \\ %21: [ 21..23 ]                       throw_reference_error
+        \\ %22: [ 22..25 ]                       label
+        \\ %23: [ 23..23 ] dead                  br %31, %21
+        \\ %24: [ 24..25 ]                       label
+        \\ %25: [ 25..25 ]                       exception_handler %18, %22, %24, 0
+        \\ %26: [ 26..28 ]                       get_binding @1 ("caught")
+        \\ %27: [ 27..28 ]                       number 1
+        \\ %28: [ 28..29 ]                       add %26, %27
+        \\ %29: [ 29..30 ]                       set_binding @1 ("caught"), %28
+        \\ %30: [ 30..30 ]                       br %31, %29
+        \\ %31: [ 31..31 ]                       label
+        \\ %32: [ 32..39 ]                       label
+        \\ %33: [ 33..34 ]                       get_binding @2 ("foo")
+        \\ %34: [ 34..34 ]                       call %33, none, []
+        \\ %35: [ 35..37 ]                       throw_reference_error
+        \\ %36: [ 36..39 ]                       label
+        \\ %37: [ 37..37 ] dead                  br %45, %35
+        \\ %38: [ 38..39 ]                       label
+        \\ %39: [ 39..39 ]                       exception_handler %32, %36, %38, 0
+        \\ %40: [ 40..42 ]                       get_binding @1 ("caught")
+        \\ %41: [ 41..42 ]                       number 1
+        \\ %42: [ 42..43 ]                       add %40, %41
+        \\ %43: [ 43..44 ]                       set_binding @1 ("caught"), %42
+        \\ %44: [ 44..44 ]                       br %45, %43
+        \\ %45: [ 45..45 ]                       label
+        \\ %46: [ 46..53 ]                       label
+        \\ %47: [ 47..48 ]                       get_binding @2 ("foo")
+        \\ %48: [ 48..48 ]                       call %47, none, []
+        \\ %49: [ 49..51 ]                       throw_reference_error
+        \\ %50: [ 50..53 ]                       label
+        \\ %51: [ 51..51 ] dead                  br %59, %49
+        \\ %52: [ 52..53 ]                       label
+        \\ %53: [ 53..53 ]                       exception_handler %46, %50, %52, 0
+        \\ %54: [ 54..56 ]                       get_binding @1 ("caught")
+        \\ %55: [ 55..56 ]                       number 1
+        \\ %56: [ 56..57 ]                       add %54, %55
+        \\ %57: [ 57..58 ]                       set_binding @1 ("caught"), %56
+        \\ %58: [ 58..58 ]                       br %59, %57
+        \\ %59: [ 59..59 ]                       label
+        \\ %60: [ 60..88 ]                       label
+        \\ %61: [ 61..83 ]                       undefined
+        \\ %62: [ 62..68 ]                       create_object 1
+        \\ %63: [ 63..64 ]                       number 1
+        \\ %64: [ 64..64 ]                       object_set %62, @3 ("a"), %63
+        \\ %65: [ 65..66 ]                       is_nullish %62
+        \\ %66: [ 66..66 ]                       br_cond %65, %82, %67
+        \\ %67: [ 67..67 ]                       label
+        \\ %68: [ 68..79 ]                       get_for_in_iterator %62
+        \\ %69: [ 69..69 ]                       br %70, %61
+        \\ %70: [ 70..81 ]                       label
+        \\ %71: [ 71..71 ]                       iterator_step_value %68
+        \\ %72: [ 72..73 ]                       iterator_is_done %68
+        \\ %73: [ 73..74 ]                       logical_not %72
+        \\ %74: [ 74..74 ]                       br_cond %73, %75, %80
+        \\ %75: [ 75..75 ]                       label
+        \\ %76: [ 76..77 ]                       get_binding @2 ("foo")
+        \\ %77: [ 77..77 ]                       call %76, none, []
+        \\ %78: [ 78..78 ]                       throw_reference_error
+        \\ %79: [ 79..79 ] dead                  br %70, %61
+        \\ %80: [ 80..80 ]                       label
+        \\ %81: [ 81..81 ]                       br %84, %70
+        \\ %82: [ 82..82 ]                       label
+        \\ %83: [ 83..83 ]                       br %84, %61
+        \\ %84: [ 84..86 ]                       label
+        \\ %85: [ 85..88 ]                       label
+        \\ %86: [ 86..86 ]                       br %94, %84
+        \\ %87: [ 87..88 ]                       label
+        \\ %88: [ 88..88 ]                       exception_handler %60, %85, %87, 0
+        \\ %89: [ 89..91 ]                       get_binding @1 ("caught")
+        \\ %90: [ 90..91 ]                       number 1
+        \\ %91: [ 91..92 ]                       add %89, %90
+        \\ %92: [ 92..93 ]                       set_binding @1 ("caught"), %91
+        \\ %93: [ 93..93 ]                       br %94, %92
+        \\ %94: [ 94..94 ]                       label
+        \\ %95: [ 95..97 ]                       get_binding @0 ("calls")
+        \\ %96: [ 96..97 ]                       number 10
+        \\ %97: [ 97..99 ]                       mul %95, %96
+        \\ %98: [ 98..99 ]                       get_binding @1 ("caught")
+        \\ %99: [ 99..100]                       add %97, %98
+        \\%100: [100..100]                       return %99
+        \\
+        \\Bytecode (test)
+        \\   0: 07 00 00 00                      load_number_i8 r0, 0
+        \\   4: 50 00 00 00 00 00 00             set_binding @0 ("calls"), r0
+        \\  11: 07 00 00 00                      load_number_i8 r0, 0
+        \\  15: 50 01 00 00 00 00 00             set_binding @1 ("caught"), r0
+        \\  22: 4b 01 00 02 00 00 00             get_binding r1, @2 ("foo")
+        \\  29: 61 02 00 01 00                   call0 r2, r1
+        \\  34: 79                               throw_reference_error
+        \\  35: 4b 00 00 01 00 00 00             get_binding r0, @1 ("caught")
+        \\  42: 07 01 00 01                      load_number_i8 r1, 1
+        \\  46: 2b 02 00 00 00 01 00             add r2, r0, r1
+        \\  53: 50 01 00 00 00 02 00             set_binding @1 ("caught"), r2
+        \\  60: 0c 00 00 02 00                   move r0, r2
+        \\  65: 4b 01 00 02 00 00 00             get_binding r1, @2 ("foo")
+        \\  72: 61 02 00 01 00                   call0 r2, r1
+        \\  77: 79                               throw_reference_error
+        \\  78: 4b 00 00 01 00 00 00             get_binding r0, @1 ("caught")
+        \\  85: 07 01 00 01                      load_number_i8 r1, 1
+        \\  89: 2b 02 00 00 00 01 00             add r2, r0, r1
+        \\  96: 50 01 00 00 00 02 00             set_binding @1 ("caught"), r2
+        \\ 103: 0c 00 00 02 00                   move r0, r2
+        \\ 108: 4b 01 00 02 00 00 00             get_binding r1, @2 ("foo")
+        \\ 115: 61 02 00 01 00                   call0 r2, r1
+        \\ 120: 79                               throw_reference_error
+        \\ 121: 4b 00 00 01 00 00 00             get_binding r0, @1 ("caught")
+        \\ 128: 07 01 00 01                      load_number_i8 r1, 1
+        \\ 132: 2b 02 00 00 00 01 00             add r2, r0, r1
+        \\ 139: 50 01 00 00 00 02 00             set_binding @1 ("caught"), r2
+        \\ 146: 0c 00 00 02 00                   move r0, r2
+        \\ 151: 4b 01 00 02 00 00 00             get_binding r1, @2 ("foo")
+        \\ 158: 61 02 00 01 00                   call0 r2, r1
+        \\ 163: 79                               throw_reference_error
+        \\ 164: 4b 00 00 01 00 00 00             get_binding r0, @1 ("caught")
+        \\ 171: 07 01 00 01                      load_number_i8 r1, 1
+        \\ 175: 2b 02 00 00 00 01 00             add r2, r0, r1
+        \\ 182: 50 01 00 00 00 02 00             set_binding @1 ("caught"), r2
+        \\ 189: 0c 00 00 02 00                   move r0, r2
+        \\ 194: 03 01 00                         load_undefined r1
+        \\ 197: 12 02 00 01 00 00 00             create_object r2, 1
+        \\ 204: 07 03 00 01                      load_number_i8 r3, 1
+        \\ 208: 13 02 00 03 00 00 00 03 00       object_set r2, @3 ("a"), r3
+        \\ 217: 27 03 00 02 00                   is_nullish r3, r2
+        \\ 222: 01 03 00 05 00 00 00             jump_if_true r3, 5
+        \\ 229: 00 05 00 00 00                   jump 5
+        \\ 234: 00 37 00 00 00                   jump 55
+        \\ 239: 71 03 00 02 00                   get_for_in_iterator r3, r2
+        \\ 244: 0c 02 00 01 00                   move r2, r1
+        \\ 249: 73 04 00 03 00                   iterator_step_value r4, r3
+        \\ 254: 76 04 00 03 00                   iterator_is_done r4, r3
+        \\ 259: 26 05 00 04 00                   logical_not r5, r4
+        \\ 264: 01 05 00 05 00 00 00             jump_if_true r5, 5
+        \\ 271: 00 0d 00 00 00                   jump 13
+        \\ 276: 4b 04 00 02 00 00 00             get_binding r4, @2 ("foo")
+        \\ 283: 61 05 00 04 00                   call0 r5, r4
+        \\ 288: 79                               throw_reference_error
+        \\ 289: 0c 01 00 02 00                   move r1, r2
+        \\ 294: 4b 00 00 00 00 00 00             get_binding r0, @0 ("calls")
+        \\ 301: 07 01 00 0a                      load_number_i8 r1, 10
+        \\ 305: 2d 02 00 00 00 01 00             mul r2, r0, r1
+        \\ 312: 4b 00 00 01 00 00 00             get_binding r0, @1 ("caught")
+        \\ 319: 2b 01 00 02 00 00 00             add r1, r2, r0
+        \\ 326: 7a 01 00                         return r1
+        \\ 329: 4b 00 00 01 00 00 00             get_binding r0, @1 ("caught")
+        \\ 336: 07 01 00 01                      load_number_i8 r1, 1
+        \\ 340: 2b 02 00 00 00 01 00             add r2, r0, r1
+        \\ 347: 50 01 00 00 00 02 00             set_binding @1 ("caught"), r2
+        \\ 354: 0c 00 00 02 00                   move r0, r2
+        \\ 359: 00 ba ff ff ff                   jump -70
+        \\
+        \\Exception handlers
+        \\  [  22..35  ) →   35, r3, 0
+        \\  [  65..78  ) →   78, r3, 0
+        \\  [ 108..121 ) →  121, r3, 0
+        \\  [ 151..164 ) →  164, r3, 0
+        \\  [ 194..294 ) →  329, r3, 0
+        \\
+        \\IR (foo)
+        \\  %0: [  0..0  ]                       push_scope
+        \\  %1: [  1..3  ]                       get_binding @0 ("calls")
+        \\  %2: [  2..3  ]                       number 1
+        \\  %3: [  3..4  ]                       add %1, %2
+        \\  %4: [  4..4  ]                       set_binding @0 ("calls"), %3
+        \\  %5: [  5..5  ]                       return none
+        \\
+        \\Bytecode (foo)
+        \\   0: 42                               push_scope
+        \\   1: 4b 00 00 00 00 00 00             get_binding r0, @0 ("calls")
+        \\   8: 07 01 00 01                      load_number_i8 r1, 1
+        \\  12: 2b 02 00 00 00 01 00             add r2, r0, r1
+        \\  19: 50 00 00 00 00 02 00             set_binding @0 ("calls"), r2
+        \\  26: 7a ff ff                         return
+        \\
+        ,
+    },
+
+    // Unbounded recursion
+    .{
+        .source =
+        \\try {
+        \\  (function f() { f(); })();
+        \\} catch (e) {
+        \\  e.toString();
+        \\}
+        \\
+        ,
+        .expected_result = .{ .value = .{ .string = "Error: Stack overflow" } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..6  ]                       label
+        \\  %1: [  1..2  ]                       create_function @0
+        \\  %2: [  2..4  ]                       call %1, none, []
+        \\  %3: [  3..6  ]                       label
+        \\  %4: [  4..4  ]                       br %15, %2
+        \\  %5: [  5..6  ]                       label
+        \\  %6: [  6..9  ]                       exception_handler %0, %3, %5, 0
+        \\  %7: [  7..7  ]                       push_catch_scope
+        \\  %8: [  8..8  ]                       create_mutable_binding @1 ("e")
+        \\  %9: [  9..9  ]                       initialize_binding @1 ("e"), %6
+        \\ %10: [ 10..12 ]                       get_binding @1 ("e")
+        \\ %11: [ 11..12 ]                       get_property %10, @2 ("toString")
+        \\ %12: [ 12..14 ]                       call %11, %10, []
+        \\ %13: [ 13..13 ]                       pop_scope
+        \\ %14: [ 14..14 ]                       br %15, %12
+        \\ %15: [ 15..16 ]                       label
+        \\ %16: [ 16..16 ]                       return %15
+        \\
+        \\Bytecode (test)
+        \\   0: 7e 01 00 00 00                   create_function r1, @0
+        \\   5: 61 02 00 01 00                   call0 r2, r1
+        \\  10: 0c 00 00 02 00                   move r0, r2
+        \\  15: 7a 00 00                         return r0
+        \\  18: 41                               push_catch_scope
+        \\  19: 47 01 00 00 00                   create_mutable_binding @1 ("e")
+        \\  24: 49 01 00 00 00 03 00             initialize_binding @1 ("e"), r3
+        \\  31: 4b 00 00 01 00 00 00             get_binding r0, @1 ("e")
+        \\  38: 4c 01 00 00 00 02 00 00 00 00 00 get_property r1, r0, @2 ("toString"), @0
+        \\  49: 65 02 00 01 00 00 00             call_property0 r2, r1, r0
+        \\  56: 45                               pop_scope
+        \\  57: 0c 00 00 02 00                   move r0, r2
+        \\  62: 00 cc ff ff ff                   jump -52
+        \\
+        \\Exception handlers
+        \\  [   0..10  ) →   18, r3, 0
+        \\
+        \\IR (f)
+        \\  %0: [  0..0  ]                       push_scope
+        \\  %1: [  1..2  ]                       get_binding @0 ("f")
+        \\  %2: [  2..2  ]                       call %1, none, []
+        \\  %3: [  3..3  ]                       return none
+        \\
+        \\Bytecode (f)
+        \\   0: 42                               push_scope
+        \\   1: 4b 00 00 00 00 00 00             get_binding r0, @0 ("f")
+        \\   8: 61 01 00 00 00                   call0 r1, r0
+        \\  13: 7a ff ff                         return
+        \\
+        ,
+    },
+
+    // Explicit resource management
+    .{
+        .source =
+        \\var log = [];
+        \\
+        \\class Disposable {
+        \\  constructor(x) {
+        \\    this.x = x;
+        \\  }
+        \\
+        \\  [Symbol.dispose]() {
+        \\    log.push(this.x);
+        \\  }
+        \\}
+        \\
+        \\(function () {
+        \\  using _ = new Disposable(1);
+        \\})();
+        \\
+        \\for (using _ = new Disposable(2); false; );
+        \\
+        \\for (using _ of [new Disposable(3), new Disposable(4)]);
+        \\
+        \\try {
+        \\  using _ = new Disposable(5);
+        \\  throw new Error();
+        \\} catch {}
+        \\
+        \\log.join(",");
+        \\
+        ,
+        .expected_result = .{ .value = .{ .string = "1,2,3,4,5" } },
+        .expected_output =
+        \\IR (test)
+        \\  %0: [  0..1  ]                       create_array 0
+        \\  %1: [  1..1  ]                       set_binding @0 ("log"), %0
+        \\  %2: [  2..2  ]                       push_private_scope
+        \\  %3: [  3..4  ]                       get_binding @2 ("Symbol")
+        \\  %4: [  4..5  ]                       get_property %3, @3 ("dispose")
+        \\  %5: [  5..7  ]                       create_class @0, none, [%4]
+        \\  %6: [  6..6  ]                       pop_private_scope
+        \\  %7: [  7..7  ]                       initialize_binding @1 ("Disposable"), %5
+        \\  %8: [  8..9  ]                       create_function @0
+        \\  %9: [  9..9  ]                       call %8, none, []
+        \\ %10: [ 10..10 ]                       push_scope
+        \\ %11: [ 11..11 ]                       create_immutable_binding @4 ("_")
+        \\ %12: [ 12..14 ]                       get_binding @1 ("Disposable")
+        \\ %13: [ 13..14 ]                       number 2
+        \\ %14: [ 14..16 ]                       construct %12, [%13]
+        \\ %15: [ 15..15 ]                       add_disposable_resource_sync %14
+        \\ %16: [ 16..16 ]                       initialize_binding @4 ("_"), %14
+        \\ %17: [ 17..17 ]                       dispose_resources
+        \\ %18: [ 18..18 ]                       pop_scope
+        \\ %19: [ 19..19 ] dead                  undefined
+        \\ %20: [ 20..47 ]                       undefined
+        \\ %21: [ 21..21 ]                       push_scope
+        \\ %22: [ 22..22 ]                       create_mutable_binding @4 ("_")
+        \\ %23: [ 23..33 ]                       create_array 2
+        \\ %24: [ 24..26 ]                       get_binding @1 ("Disposable")
+        \\ %25: [ 25..26 ]                       number 3
+        \\ %26: [ 26..27 ]                       construct %24, [%25]
+        \\ %27: [ 27..27 ]                       array_push %23, %26
+        \\ %28: [ 28..30 ]                       get_binding @1 ("Disposable")
+        \\ %29: [ 29..30 ]                       number 4
+        \\ %30: [ 30..31 ]                       construct %28, [%29]
+        \\ %31: [ 31..31 ]                       array_push %23, %30
+        \\ %32: [ 32..32 ]                       pop_scope
+        \\ %33: [ 33..47 ]                       get_iterator %23
+        \\ %34: [ 34..34 ]                       br %35, %20
+        \\ %35: [ 35..49 ]                       label
+        \\ %36: [ 36..44 ]                       iterator_step_value %33
+        \\ %37: [ 37..38 ]                       iterator_is_done %33
+        \\ %38: [ 38..39 ]                       logical_not %37
+        \\ %39: [ 39..39 ]                       br_cond %38, %40, %48
+        \\ %40: [ 40..40 ]                       label
+        \\ %41: [ 41..41 ]                       push_scope
+        \\ %42: [ 42..42 ]                       create_immutable_binding @4 ("_")
+        \\ %43: [ 43..43 ]                       add_disposable_resource_sync %36
+        \\ %44: [ 44..44 ]                       initialize_binding @4 ("_"), %36
+        \\ %45: [ 45..45 ]                       dispose_resources
+        \\ %46: [ 46..46 ]                       pop_scope
+        \\ %47: [ 47..47 ]                       br %35, %20
+        \\ %48: [ 48..48 ]                       label
+        \\ %49: [ 49..49 ]                       br %50, %35
+        \\ %50: [ 50..50 ]                       label
+        \\ %51: [ 51..68 ]                       label
+        \\ %52: [ 52..52 ]                       push_scope
+        \\ %53: [ 53..53 ]                       create_immutable_binding @4 ("_")
+        \\ %54: [ 54..56 ]                       get_binding @1 ("Disposable")
+        \\ %55: [ 55..56 ]                       number 5
+        \\ %56: [ 56..58 ]                       construct %54, [%55]
+        \\ %57: [ 57..57 ]                       add_disposable_resource_sync %56
+        \\ %58: [ 58..58 ]                       initialize_binding @4 ("_"), %56
+        \\ %59: [ 59..60 ]                       get_binding @5 ("Error")
+        \\ %60: [ 60..61 ]                       construct %59, []
+        \\ %61: [ 61..61 ]                       throw %60
+        \\ %62: [ 62..62 ] dead                  dispose_resources
+        \\ %63: [ 63..63 ] dead                  pop_scope
+        \\ %64: [ 64..66 ] dead                  undefined
+        \\ %65: [ 65..68 ]                       label
+        \\ %66: [ 66..66 ] dead                  br %71, %64
+        \\ %67: [ 67..68 ]                       label
+        \\ %68: [ 68..68 ]                       exception_handler %51, %65, %67, 0
+        \\ %69: [ 69..70 ]                       undefined
+        \\ %70: [ 70..70 ]                       br %71, %69
+        \\ %71: [ 71..71 ]                       label
+        \\ %72: [ 72..75 ]                       get_binding @0 ("log")
+        \\ %73: [ 73..75 ]                       get_property %72, @6 ("join")
+        \\ %74: [ 74..75 ]                       string @7 (",")
+        \\ %75: [ 75..76 ]                       call %73, %72, [%74]
+        \\ %76: [ 76..76 ]                       return %75
+        \\
+        \\Bytecode (test)
+        \\   0: 0d 00 00 00 00 00 00             create_array r0, 0
+        \\   7: 50 00 00 00 00 00 00             set_binding @0 ("log"), r0
+        \\  14: 8d                               push_private_scope
+        \\  15: 4b 00 00 02 00 00 00             get_binding r0, @2 ("Symbol")
+        \\  22: 4c 01 00 00 00 03 00 00 00 00 00 get_property r1, r0, @3 ("dispose"), @0
+        \\  33: 7f 00 00 00 00                   create_class r0, @0
+        \\  38: 8e                               pop_private_scope
+        \\  39: 49 01 00 00 00 00 00             initialize_binding @1 ("Disposable"), r0
+        \\  46: 7e 00 00 00 00                   create_function r0, @0
+        \\  51: 61 01 00 00 00                   call0 r1, r0
+        \\  56: 42                               push_scope
+        \\  57: 48 04 00 00 00                   create_immutable_binding @4 ("_")
+        \\  62: 4b 00 00 01 00 00 00             get_binding r0, @1 ("Disposable")
+        \\  69: 07 01 00 02                      load_number_i8 r1, 2
+        \\  73: 6c 02 00 00 00 01 00             construct1 r2, r0, r1
+        \\  80: 96 02 00                         add_disposable_resource_sync r2
+        \\  83: 49 04 00 00 00 02 00             initialize_binding @4 ("_"), r2
+        \\  90: 98                               dispose_resources
+        \\  91: 45                               pop_scope
+        \\  92: 03 00 00                         load_undefined r0
+        \\  95: 42                               push_scope
+        \\  96: 47 04 00 00 00                   create_mutable_binding @4 ("_")
+        \\ 101: 0d 01 00 02 00 00 00             create_array r1, 2
+        \\ 108: 4b 02 00 01 00 00 00             get_binding r2, @1 ("Disposable")
+        \\ 115: 07 03 00 03                      load_number_i8 r3, 3
+        \\ 119: 6c 04 00 02 00 03 00             construct1 r4, r2, r3
+        \\ 126: 10 01 00 04 00 00 00 00 00       array_set r1, r4, 0
+        \\ 135: 4b 02 00 01 00 00 00             get_binding r2, @1 ("Disposable")
+        \\ 142: 07 03 00 04                      load_number_i8 r3, 4
+        \\ 146: 6c 04 00 02 00 03 00             construct1 r4, r2, r3
+        \\ 153: 10 01 00 04 00 01 00 00 00       array_set r1, r4, 1
+        \\ 162: 45                               pop_scope
+        \\ 163: 6f 02 00 01 00                   get_iterator r2, r1
+        \\ 168: 0c 01 00 00 00                   move r1, r0
+        \\ 173: 73 03 00 02 00                   iterator_step_value r3, r2
+        \\ 178: 76 04 00 02 00                   iterator_is_done r4, r2
+        \\ 183: 26 05 00 04 00                   logical_not r5, r4
+        \\ 188: 01 05 00 05 00 00 00             jump_if_true r5, 5
+        \\ 195: 00 1c 00 00 00                   jump 28
+        \\ 200: 42                               push_scope
+        \\ 201: 48 04 00 00 00                   create_immutable_binding @4 ("_")
+        \\ 206: 96 03 00                         add_disposable_resource_sync r3
+        \\ 209: 49 04 00 00 00 03 00             initialize_binding @4 ("_"), r3
+        \\ 216: 98                               dispose_resources
+        \\ 217: 45                               pop_scope
+        \\ 218: 0c 01 00 00 00                   move r1, r0
+        \\ 223: 00 c9 ff ff ff                   jump -55
+        \\ 228: 42                               push_scope
+        \\ 229: 48 04 00 00 00                   create_immutable_binding @4 ("_")
+        \\ 234: 4b 01 00 01 00 00 00             get_binding r1, @1 ("Disposable")
+        \\ 241: 07 02 00 05                      load_number_i8 r2, 5
+        \\ 245: 6c 03 00 01 00 02 00             construct1 r3, r1, r2
+        \\ 252: 96 03 00                         add_disposable_resource_sync r3
+        \\ 255: 49 04 00 00 00 03 00             initialize_binding @4 ("_"), r3
+        \\ 262: 4b 01 00 05 00 00 00             get_binding r1, @5 ("Error")
+        \\ 269: 6b 02 00 01 00                   construct0 r2, r1
+        \\ 274: 78 02 00                         throw r2
+        \\ 277: 03 00 00                         load_undefined r0
+        \\ 280: 4b 00 00 00 00 00 00             get_binding r0, @0 ("log")
+        \\ 287: 4c 01 00 00 00 06 00 00 00 01 00 get_property r1, r0, @6 ("join"), @1
+        \\ 298: 0a 02 00 07 00 00 00             load_string r2, @7 (",")
+        \\ 305: 66 03 00 01 00 00 00 02 00       call_property1 r3, r1, r0, r2
+        \\ 314: 7a 03 00                         return r3
+        \\
+        \\Exception handlers
+        \\  [ 228..277 ) →  277, r3, 0
+        \\
+        \\IR ()
+        \\  %0: [  0..0  ]                       push_scope
+        \\  %1: [  1..1  ]                       create_immutable_binding @0 ("_")
+        \\  %2: [  2..4  ]                       get_binding @1 ("Disposable")
+        \\  %3: [  3..4  ]                       number 1
+        \\  %4: [  4..6  ]                       construct %2, [%3]
+        \\  %5: [  5..5  ]                       add_disposable_resource_sync %4
+        \\  %6: [  6..6  ]                       initialize_binding @0 ("_"), %4
+        \\  %7: [  7..7  ]                       dispose_resources
+        \\  %8: [  8..8  ]                       return none
+        \\
+        \\Bytecode ()
+        \\   0: 42                               push_scope
+        \\   1: 48 00 00 00 00                   create_immutable_binding @0 ("_")
+        \\   6: 4b 00 00 01 00 00 00             get_binding r0, @1 ("Disposable")
+        \\  13: 07 01 00 01                      load_number_i8 r1, 1
+        \\  17: 6c 02 00 00 00 01 00             construct1 r2, r0, r1
+        \\  24: 96 02 00                         add_disposable_resource_sync r2
+        \\  27: 49 00 00 00 00 02 00             initialize_binding @0 ("_"), r2
+        \\  34: 98                               dispose_resources
+        \\  35: 7a ff ff                         return
+        \\
+        \\IR (Disposable)
+        \\  %0: [  0..0  ]                       create_mutable_binding @0 ("x")
+        \\  %1: [  1..2  ]                       get_argument 0
+        \\  %2: [  2..2  ]                       initialize_binding @0 ("x"), %1
+        \\  %3: [  3..5  ]                       this
+        \\  %4: [  4..5  ]                       get_binding @0 ("x")
+        \\  %5: [  5..5  ]                       set_property_strict %3, @0 ("x"), %4
+        \\  %6: [  6..6  ]                       return none
+        \\
+        \\Bytecode (Disposable)
+        \\   0: 83 00 00 00 00                   get_argument r0, 0
+        \\   5: 4f 00 00 00 00                   set_local l0, r0
+        \\  10: 1c 00 00                         resolve_this_binding r0
+        \\  13: 4a 01 00 00 00                   get_local r1, l0
+        \\  18: 53 00 00 01 00 00 00 00 00 00 00 set_property_strict r0, r1, @0 ("x"), @0
+        \\  29: 7a ff ff                         return
+        \\
+        \\IR ([Symbol.dispose])
+        \\  %0: [  0..4  ]                       get_binding @0 ("log")
+        \\  %1: [  1..4  ]                       get_property %0, @1 ("push")
+        \\  %2: [  2..3  ]                       this
+        \\  %3: [  3..4  ]                       get_property %2, @2 ("x")
+        \\  %4: [  4..4  ]                       call %1, %0, [%3]
+        \\  %5: [  5..5  ]                       return none
+        \\
+        \\Bytecode ([Symbol.dispose])
+        \\   0: 4b 00 00 00 00 00 00             get_binding r0, @0 ("log")
+        \\   7: 4c 01 00 00 00 01 00 00 00 00 00 get_property r1, r0, @1 ("push"), @0
+        \\  18: 1c 02 00                         resolve_this_binding r2
+        \\  21: 4c 03 00 02 00 02 00 00 00 01 00 get_property r3, r2, @2 ("x"), @1
+        \\  32: 66 02 00 01 00 00 00 03 00       call_property1 r2, r1, r0, r3
+        \\  41: 7a ff ff                         return
+        \\
+        ,
+    },
+}

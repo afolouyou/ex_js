@@ -1,0 +1,20 @@
+.{
+    .name = .zement,
+    .version = "0.1.0",
+    .fingerprint = 0x61efa220c3b353b6,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .build_crab = .{
+            .url = "git+https://github.com/linusg/build.crab#25739fd8bf62979713d0220f8d616d059a445a59",
+            .hash = "build_crab-0.4.0-U0id_1COAADs4wbFcxbc7FU8Eaw4HYAdhHuXvsRlNl74",
+        },
+    },
+    .paths = .{
+        "build.rs",
+        "build.zig",
+        "build.zig.zon",
+        "Cargo.lock",
+        "Cargo.toml",
+        "src",
+    },
+}

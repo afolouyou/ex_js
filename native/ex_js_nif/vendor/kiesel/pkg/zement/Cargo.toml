@@ -1,0 +1,37 @@
+[package]
+name = "zement"
+version = "0.1.0"
+edition = "2024"
+
+# This is pinned to the same version as the icu4x dependency in icu4zig, which provides the C
+# headers for Zig.
+[dependencies.icu_capi]
+version = "2.3.1"
+default-features = false
+features = ["compiled_data", "default_components", "unstable", "experimental", "std"]
+
+# This is pinned to the same version as in pkg/temporal_rs/build.zig.zon, which provides the C
+# headers for Zig.
+[dependencies.temporal_capi]
+version = "0.2.6"
+default-features = false
+features = ["compiled_data"]
+
+# Not actually used directly, but we need to specify it as a dependency to enable features not
+# exposed via the temporal_capi crate.
+[dependencies.temporal_rs]
+version = "*"
+default-features = false
+features = ["float64_representable_durations"]
+
+[features]
+intl = []
+temporal = []
+
+[lib]
+crate-type = ["staticlib"]
+
+[profile.release]
+strip = true
+lto = true
+panic = "abort"
