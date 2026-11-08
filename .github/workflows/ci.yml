@@ -65,5 +65,10 @@ jobs:
           {:ok, _} = ExJS.eval(ctx, "function sum(a, b) { return a + b }")
           {:ok, 42} = ExJS.call(ctx, "sum", [20, 22])
           :ok = ExJS.close(ctx)
+
+          {:ok, iso} = ExJS.new(mode: :isolated, timeout: 1_000)
+          {:ok, 7} = ExJS.eval(iso, "3 + 4")
+          :ok = ExJS.close(iso)
+
           IO.puts("consumer ok")
           '

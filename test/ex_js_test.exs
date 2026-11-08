@@ -211,6 +211,93 @@ defmodule ExJSTest do
     end
   end
 
+  describe "módulos ES" do
+    test "export default e import nomeado", %{ctx: ctx} do
+      assert :ok =
+               ExJS.put_module(
+                 ctx,
+                 "math",
+                 "export const sum = (a, b) => a + b; export const pi = 3.14"
+               )
+
+      assert {:ok, %{"default" => 3}} =
+               ExJS.eval_module(ctx, ~S|import { sum } from "math"; export default sum(1, 2)|)
+    end
+
+    test "exports nomeados", %{ctx: ctx} do
+      assert :ok = ExJS.put_module(ctx, "math", "export const sum = (a, b) => a + b")
+
+      assert {:ok, %{"total" => 5}} =
+               ExJS.eval_module(
+                 ctx,
+                 ~S|import { sum } from "math"; export const total = sum(2, 3)|
+               )
+    end
+
+    test "import de namespace", %{ctx: ctx} do
+      assert :ok = ExJS.put_module(ctx, "math", "export const a = 1; export const b = 2")
+
+      assert {:ok, %{"count" => 2}} =
+               ExJS.eval_module(
+                 ctx,
+                 ~S|import * as m from "math"; export const count = Object.keys(m).length|
+               )
+    end
+
+    test "módulo inexistente retorna erro", %{ctx: ctx} do
+      assert {:error, %{name: "Error", message: message}} =
+               ExJS.eval_module(ctx, ~S|import { x } from "missing"; export default x|)
+
+      assert message =~ "not found"
+    end
+
+    test "erro de sintaxe no módulo", %{ctx: ctx} do
+      assert {:error, %{name: "SyntaxError"}} = ExJS.eval_module(ctx, "export default (")
+    end
+  end
+
+  describe "eval_file/2" do
+    test "executa arquivo JavaScript", %{ctx: ctx} do
+      path = Path.join(System.tmp_dir!(), "ex_js_#{System.unique_integer([:positive])}.js")
+      File.write!(path, "let base = 20; base + 22")
+      on_exit(fn -> File.rm(path) end)
+
+      assert {:ok, 42} = ExJS.eval_file(ctx, path)
+    end
+
+    test "retorna erro para arquivo inexistente", %{ctx: ctx} do
+      assert {:error, :enoent} = ExJS.eval_file(ctx, "/tmp/definitely-missing-exjs.js")
+    end
+  end
+
+  describe "delete/2, has?/2 e keys/1" do
+    test "remove e consulta variáveis", %{ctx: ctx} do
+      :ok = ExJS.set(ctx, "temp", 1)
+      assert {:ok, true} = ExJS.has?(ctx, "temp")
+      assert :ok = ExJS.delete(ctx, "temp")
+      assert {:ok, false} = ExJS.has?(ctx, "temp")
+      assert {:ok, false} = ExJS.has?(ctx, "never_existed")
+    end
+
+    test "lista chaves enumeráveis", %{ctx: ctx} do
+      :ok = ExJS.set(ctx, "custom_key", 1)
+      assert {:ok, keys} = ExJS.keys(ctx)
+      assert "custom_key" in keys
+    end
+  end
+
+  describe "call_path/3 e collect/1" do
+    test "chama função por caminho", %{ctx: ctx} do
+      assert {:ok, 9} = ExJS.call_path(ctx, ["Math", "max"], [1, 9, 3])
+      assert {:error, :not_found} = ExJS.call_path(ctx, ["Math", "nope"], [])
+      assert {:error, :not_found} = ExJS.call_path(ctx, ["Nope", "max"], [])
+    end
+
+    test "coleta explícita do GC", %{ctx: ctx} do
+      assert :ok = ExJS.collect(ctx)
+    end
+  end
+
   describe "ciclo de vida" do
     test "contexto pertence ao processo que o criou" do
       {:ok, ctx} = ExJS.new()

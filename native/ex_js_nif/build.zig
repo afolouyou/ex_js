@@ -149,5 +149,23 @@ pub fn build(b: *std.Build) !void {
         .dest_dir = .{ .override = .{ .custom = "../../../priv" } },
     });
 
+    // Standalone runner for the isolated backend (Port-based, no NIF).
+    const runner = b.addExecutable(.{
+        .name = "ex_js_runner",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/runner.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+    });
+
+    runner.root_module.addImport("kiesel", kiesel_module);
+
+    const install_runner = b.addInstallArtifact(runner, .{
+        .dest_dir = .{ .override = .{ .custom = "../../../priv" } },
+    });
+
     b.default_step.dependOn(&install_step.step);
+    b.default_step.dependOn(&install_runner.step);
 }

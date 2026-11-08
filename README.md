@@ -28,11 +28,62 @@ JavaScript escrito em Zig, embutido como NIF.
 | `new/0,1` | Cria um contexto JavaScript isolado |
 | `eval/2` | Avalia um script e retorna o resultado |
 | `eval/3` | Avalia um script injetando variáveis globais |
+| `eval_file/2,3` | Avalia um arquivo `.js` |
 | `set/3` | Define uma variável global |
 | `get/2` | Lê uma variável global |
+| `delete/2` | Remove uma variável global |
+| `has?/2` | Verifica se uma variável existe |
+| `keys/1` | Lista chaves enumeráveis de `globalThis` |
 | `call/3` | Chama uma função global |
+| `call_path/3` | Chama uma função por caminho (`["Math", "max"]`) |
+| `put_module/3` | Registra um módulo ES em memória |
+| `eval_module/3` | Avalia um módulo ES e retorna exports |
+| `collect/1` | Executa coleta explícita do GC |
 | `info/1` | Retorna informações do contexto |
 | `close/1` | Fecha o contexto explicitamente |
+
+## Modos de execução
+
+### `:embedded` (padrão)
+
+NIF com Kiesel dentro do processo BEAM. Menor latência, indicado para código
+confiável.
+
+```elixir
+{:ok, ctx} = ExJS.new()
+```
+
+### `:isolated`
+
+Processo separado via Port, com timeout real e kill de loops infinitos.
+Indicado para código não confiável.
+
+```elixir
+{:ok, ctx} = ExJS.new(mode: :isolated, timeout: 1_000)
+
+{:error, :timeout} = ExJS.eval(ctx, "while (true) {}")
+{:error, :context_closed} = ExJS.eval(ctx, "1")
+```
+
+No modo isolado, valores são transportados como JSON: `NaN`/`Infinity` viram
+`nil` e funções não podem ser retornadas. Módulos ES não são suportados nesse
+modo.
+
+## Módulos ES
+
+Imports são resolvidos apenas contra módulos registrados em memória — sem
+acesso ao filesystem.
+
+```elixir
+{:ok, ctx} = ExJS.new()
+
+:ok = ExJS.put_module(ctx, "math", "export const sum = (a, b) => a + b")
+
+{:ok, %{"default" => 3}} =
+  ExJS.eval_module(ctx, ~s|import { sum } from "math"; export default sum(1, 2)|)
+```
+
+## Limites
 
 ### Conversão de valores
 
@@ -169,14 +220,16 @@ zig build -Doptimize=Debug -Dsanitize=true
   sequencial.
 - Cada contexto tem seu próprio estado e pertence ao processo que o criou.
 
-## Limitações (v0.2)
+## Limitações (v0.3)
 
-- **Apenas scripts confiáveis.** Não há timeout nem interrupção cooperativa:
-  um loop infinito ocupa um dirty scheduler indefinidamente. Para código não
-  confiável, o caminho futuro é um backend isolado em subprocesso.
-- **Sem módulos ES** (`import`/`export`).
-- `call/3` aceita apenas nomes de funções globais, não paths como
-  `"Math.max"`.
+- **`:embedded` exige código confiável.** Não há timeout nem interrupção
+  cooperativa; um loop infinito ocupa um dirty scheduler indefinidamente.
+  Use `mode: :isolated` para código não confiável.
+- **Sem módulos ES no modo isolado.**
+- **Sem resolução de módulos no filesystem.** Imports usam apenas o registry
+  em memória (`put_module/3`).
+- `call/3` e `put_module/3` aceitam apenas nomes simples; use `call_path/3`
+  para caminhos.
 - Um contexto pertence ao processo que o criou; outros processos recebem
   `{:error, :not_owner}`.
 - Plataforma alvo inicial: Linux x86_64.

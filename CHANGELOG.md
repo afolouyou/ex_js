@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0
+
+### Adicionado
+
+- Backend `:isolated` via Port com timeout real e kill de loops infinitos.
+- `ExJS.eval_file/2,3`.
+- `ExJS.delete/2`, `ExJS.has?/2`, `ExJS.keys/1`.
+- `ExJS.call_path/3` para chamar funções por caminho (`["Math", "max"]`).
+- `ExJS.collect/1` para coleta explícita do GC.
+- Módulos ES com registry em memória:
+  - `ExJS.put_module/3`;
+  - `ExJS.eval_module/3`, retornando exports;
+  - `import` nomeado, namespace e `export default`.
+- Runner standalone (`priv/ex_js_runner`) para o modo isolado.
+- Testes do modo isolado (timeout, lifecycle, owner).
+
 ## 0.2.0
 
 ### Adicionado

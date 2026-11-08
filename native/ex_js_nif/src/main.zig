@@ -21,6 +21,13 @@ const Agent = kiesel.execution.Agent;
 const Platform = Agent.Platform;
 const Realm = kiesel.execution.Realm;
 const Script = kiesel.language.Script;
+const SourceTextModule = kiesel.language.SourceTextModule;
+const Module = kiesel.language.Module;
+const ModuleRequest = kiesel.language.ModuleRequest;
+const ImportedModuleReferrer = kiesel.language.ImportedModuleReferrer;
+const ImportedModulePayload = kiesel.language.ImportedModulePayload;
+const finishLoadingImportedModule = kiesel.language.finishLoadingImportedModule;
+const getModuleNamespace = kiesel.language.getModuleNamespace;
 const Diagnostics = kiesel.language.Diagnostics;
 const Object = kiesel.types.Object;
 const PropertyKey = kiesel.types.PropertyKey;
@@ -49,6 +56,9 @@ const Context = struct {
     platform: Platform,
     agent: Agent,
     closed: bool,
+
+    module_sources: std.StringHashMapUnmanaged([]const u8),
+    module_cache: std.StringHashMapUnmanaged(Module),
 };
 
 var resource_type: ?*c.ErlNifResourceType = null;
@@ -65,6 +75,10 @@ fn lockEngine() void {
 fn unlockEngine() void {
     if (engine_mutex) |mutex| c.enif_mutex_unlock(mutex);
 }
+
+/// Set while a module is being loaded. Engine operations are serialized by
+/// `engine_mutex`, so a single global pointer is safe.
+var module_ctx: ?*Context = null;
 
 /// The NIF resource only stores a pointer. The Context itself lives in GC
 /// memory (as an uncollectable block) so BDWGC scans Agent/Realm references;
@@ -110,6 +124,16 @@ fn checkStackOverflow() bool {
     return false;
 }
 
+fn deinitContext(ctx: *Context) void {
+    if (!ctx.closed) {
+        ctx.module_sources.deinit(ctx.agent.gc_allocator);
+        ctx.module_cache.deinit(ctx.agent.gc_allocator);
+        ctx.agent.deinit();
+        ctx.platform.deinit();
+        ctx.closed = true;
+    }
+}
+
 fn contextDestructor(env: ?*c.ErlNifEnv, obj: ?*anyopaque) callconv(.c) void {
     _ = env;
     const slot: *ContextSlot = @ptrCast(@alignCast(obj.?));
@@ -118,11 +142,7 @@ fn contextDestructor(env: ?*c.ErlNifEnv, obj: ?*anyopaque) callconv(.c) void {
     lockEngine();
     defer unlockEngine();
 
-    if (!ctx.closed) {
-        ctx.agent.deinit();
-        ctx.platform.deinit();
-        ctx.closed = true;
-    }
+    deinitContext(ctx);
     c.enif_mutex_destroy(ctx.mutex);
     GC_free(ctx);
 }
@@ -219,6 +239,115 @@ fn exceptionToErrorTerm(env: ?*c.ErlNifEnv, agent: *Agent) c.ERL_NIF_TERM {
     const message: []const u8 = message_buf orelse "";
 
     return makeErrorMap(env, name, message);
+}
+
+fn hostLoadImportedModule(
+    agent: *Agent,
+    referrer: ImportedModuleReferrer,
+    module_request: ModuleRequest,
+    host_defined: ?*anyopaque,
+    payload: ImportedModulePayload,
+) std.mem.Allocator.Error!void {
+    _ = host_defined;
+
+    const ctx = module_ctx orelse {
+        _ = agent.throwException(.internal_error, "No module context", .{}) catch {};
+        return finishLoadingImportedModule(
+            agent,
+            referrer,
+            module_request,
+            payload,
+            error.ExceptionThrown,
+        );
+    };
+
+    const specifier = module_request.specifier.toUtf8(agent.gc_allocator) catch |err| return err;
+
+    if (ctx.module_cache.get(specifier)) |module| {
+        return finishLoadingImportedModule(agent, referrer, module_request, payload, module);
+    }
+
+    const source = ctx.module_sources.get(specifier) orelse {
+        _ = agent.throwException(
+            .internal_error,
+            "Module '{f}' not found. Use ExJS.put_module/3 to register it.",
+            .{module_request.specifier.fmtEscaped()},
+        ) catch {};
+        return finishLoadingImportedModule(
+            agent,
+            referrer,
+            module_request,
+            payload,
+            error.ExceptionThrown,
+        );
+    };
+
+    var diagnostics = Diagnostics.init(agent.gpa, .{
+        .source = source,
+        .file_name = specifier,
+    });
+    defer diagnostics.deinit();
+
+    const parsed = SourceTextModule.parse(source, agent.currentRealm(), null, .{
+        .diagnostics = &diagnostics,
+    }) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.ParseError => {
+            if (diagnostics.first()) |parse_error| {
+                _ = agent.throwException(.syntax_error, "{f}", .{parse_error.fmt(&diagnostics)}) catch {};
+            } else {
+                _ = agent.throwException(
+                    .syntax_error,
+                    "failed to parse module '{f}'",
+                    .{module_request.specifier.fmtEscaped()},
+                ) catch {};
+            }
+            return finishLoadingImportedModule(
+                agent,
+                referrer,
+                module_request,
+                payload,
+                error.ExceptionThrown,
+            );
+        },
+    };
+
+    const module: Module = .{ .source_text_module = parsed };
+    ctx.module_cache.put(agent.gc_allocator, specifier, module) catch |err| return err;
+
+    return finishLoadingImportedModule(agent, referrer, module_request, payload, module);
+}
+
+fn moduleExportsToTerm(
+    env: ?*c.ErlNifEnv,
+    agent: *Agent,
+    module: *SourceTextModule,
+    limits: Limits,
+) anyerror!c.ERL_NIF_TERM {
+    var map_term = c.enif_make_new_map(env);
+    const namespace = try getModuleNamespace(agent, .{ .source_text_module = module });
+
+    var properties = try Object.enumerableOwnProperties(&namespace.object, agent, .key_value);
+    defer properties.deinit(agent.gc_allocator);
+    if (properties.items.len > limits.max_collection_size) return error.CollectionTooLarge;
+
+    for (properties.items) |entry| {
+        const key_value = try entry.get(agent, PropertyKey.from(0));
+        const entry_value = try entry.get(agent, PropertyKey.from(1));
+
+        const key_string = try key_value.toString(agent);
+        const key_utf8 = try key_string.toUtf8(agent.gc_allocator);
+        if (key_utf8.len > limits.max_string_bytes) return error.StringTooLarge;
+
+        const key_term = try makeBinary(env, key_utf8);
+        const entry_term = try valueToTerm(env, agent, entry_value, limits, limits.max_depth - 1);
+
+        var out: c.ERL_NIF_TERM = undefined;
+        _ = c.enif_make_map_put(env, map_term, key_term, entry_term, &out);
+        map_term = out;
+    }
+
+    return map_term;
 }
 
 fn convErrorToTerm(env: ?*c.ErlNifEnv, err: anyerror) c.ERL_NIF_TERM {
@@ -431,6 +560,17 @@ fn termToValue(
     return error.UnsupportedValue;
 }
 
+fn nameToKey(
+    agent: *Agent,
+    env: ?*c.ErlNifEnv,
+    term: c.ERL_NIF_TERM,
+    limits: Limits,
+) anyerror!PropertyKey {
+    const utf8 = try termToUtf8(agent, env, term, limits);
+    const string = try String.fromUtf8(agent, utf8);
+    return PropertyKey.from(string);
+}
+
 fn termToUtf8(
     agent: *Agent,
     env: ?*c.ErlNifEnv,
@@ -565,6 +705,8 @@ pub export fn exjsNew(env: ?*c.ErlNifEnv, argc: c_int, argv: [*c]const c.ERL_NIF
         .platform = undefined,
         .agent = undefined,
         .closed = false,
+        .module_sources = .empty,
+        .module_cache = .empty,
     };
 
     _ = c.enif_self(env, &ctx.owner);
@@ -591,6 +733,8 @@ pub export fn exjsNew(env: ?*c.ErlNifEnv, argc: c_int, argv: [*c]const c.ERL_NIF
         GC_free(ctx);
         return makeError(env, "agent_init_failed");
     };
+
+    ctx.agent.host_hooks.hostLoadImportedModule = hostLoadImportedModule;
 
     Realm.initializeHostDefinedRealm(&ctx.agent, .{}) catch {
         ctx.agent.deinit();
@@ -885,6 +1029,357 @@ pub export fn exjsCall(env: ?*c.ErlNifEnv, argc: c_int, argv: [*c]const c.ERL_NI
     return makeOkTuple(env, term);
 }
 
+pub export fn exjsDelete(env: ?*c.ErlNifEnv, argc: c_int, argv: [*c]const c.ERL_NIF_TERM) c.ERL_NIF_TERM {
+    if (argc != 2) return c.enif_make_badarg(env);
+
+    lockEngine();
+    defer unlockEngine();
+
+    ensureGc();
+    ensureGcThread();
+
+    const ctx = getContext(env, argv[0]) orelse return makeError(env, "invalid_context");
+    if (!isOwner(env, ctx)) return makeError(env, "not_owner");
+
+    c.enif_mutex_lock(ctx.mutex);
+    defer c.enif_mutex_unlock(ctx.mutex);
+
+    if (ctx.closed) return makeError(env, "context_closed");
+
+    const key = nameToKey(&ctx.agent, env, argv[1], ctx.limits) catch |err| {
+        return convErrorToTerm(env, err);
+    };
+
+    const realm = ctx.agent.currentRealm();
+    const success = realm.global_object.internalMethods().delete(
+        &ctx.agent,
+        realm.global_object,
+        key,
+    ) catch |err| switch (err) {
+        error.ExceptionThrown => return exceptionToErrorTerm(env, &ctx.agent),
+        error.OutOfMemory => return makeError(env, "out_of_memory"),
+    };
+
+    if (!success) return makeError(env, "delete_failed");
+    return c.enif_make_atom(env, "ok");
+}
+
+pub export fn exjsHas(env: ?*c.ErlNifEnv, argc: c_int, argv: [*c]const c.ERL_NIF_TERM) c.ERL_NIF_TERM {
+    if (argc != 2) return c.enif_make_badarg(env);
+
+    lockEngine();
+    defer unlockEngine();
+
+    ensureGc();
+    ensureGcThread();
+
+    const ctx = getContext(env, argv[0]) orelse return makeError(env, "invalid_context");
+    if (!isOwner(env, ctx)) return makeError(env, "not_owner");
+
+    c.enif_mutex_lock(ctx.mutex);
+    defer c.enif_mutex_unlock(ctx.mutex);
+
+    if (ctx.closed) return makeError(env, "context_closed");
+
+    const key = nameToKey(&ctx.agent, env, argv[1], ctx.limits) catch |err| {
+        return convErrorToTerm(env, err);
+    };
+
+    const realm = ctx.agent.currentRealm();
+    const exists = realm.global_object.hasProperty(&ctx.agent, key) catch |err| switch (err) {
+        error.ExceptionThrown => return exceptionToErrorTerm(env, &ctx.agent),
+        error.OutOfMemory => return makeError(env, "out_of_memory"),
+    };
+
+    return makeOkTuple(
+        env,
+        if (exists) c.enif_make_atom(env, "true") else c.enif_make_atom(env, "false"),
+    );
+}
+
+pub export fn exjsKeys(env: ?*c.ErlNifEnv, argc: c_int, argv: [*c]const c.ERL_NIF_TERM) c.ERL_NIF_TERM {
+    if (argc != 1) return c.enif_make_badarg(env);
+
+    lockEngine();
+    defer unlockEngine();
+
+    ensureGc();
+    ensureGcThread();
+
+    const ctx = getContext(env, argv[0]) orelse return makeError(env, "invalid_context");
+    if (!isOwner(env, ctx)) return makeError(env, "not_owner");
+
+    c.enif_mutex_lock(ctx.mutex);
+    defer c.enif_mutex_unlock(ctx.mutex);
+
+    if (ctx.closed) return makeError(env, "context_closed");
+
+    const realm = ctx.agent.currentRealm();
+    var keys = Object.enumerableOwnProperties(realm.global_object, &ctx.agent, .key) catch |err| switch (err) {
+        error.ExceptionThrown => return exceptionToErrorTerm(env, &ctx.agent),
+        error.OutOfMemory => return makeError(env, "out_of_memory"),
+    };
+    defer keys.deinit(ctx.agent.gc_allocator);
+
+    var list_term = c.enif_make_list(env, 0);
+    var i: usize = keys.items.len;
+    while (i > 0) {
+        i -= 1;
+        const key_value = keys.items[i];
+        if (!key_value.isString()) continue;
+        const utf8 = key_value.asString().toUtf8(ctx.agent.gc_allocator) catch {
+            return makeError(env, "out_of_memory");
+        };
+        if (utf8.len > ctx.limits.max_string_bytes) return makeError(env, "string_too_large");
+        const key_term = makeBinary(env, utf8) catch return makeError(env, "out_of_memory");
+        list_term = c.enif_make_list_cell(env, key_term, list_term);
+    }
+
+    return makeOkTuple(env, list_term);
+}
+
+pub export fn exjsCallPath(env: ?*c.ErlNifEnv, argc: c_int, argv: [*c]const c.ERL_NIF_TERM) c.ERL_NIF_TERM {
+    if (argc != 3) return c.enif_make_badarg(env);
+
+    lockEngine();
+    defer unlockEngine();
+
+    ensureGc();
+    ensureGcThread();
+
+    const ctx = getContext(env, argv[0]) orelse return makeError(env, "invalid_context");
+    if (!isOwner(env, ctx)) return makeError(env, "not_owner");
+
+    c.enif_mutex_lock(ctx.mutex);
+    defer c.enif_mutex_unlock(ctx.mutex);
+
+    if (ctx.closed) return makeError(env, "context_closed");
+
+    var path_keys: std.ArrayList(PropertyKey) = .empty;
+    defer path_keys.deinit(ctx.agent.gpa);
+
+    var tail = argv[1];
+    while (true) {
+        var head: c.ERL_NIF_TERM = undefined;
+        var next: c.ERL_NIF_TERM = undefined;
+        if (c.enif_get_list_cell(env, tail, &head, &next) == 0) break;
+
+        const key = nameToKey(&ctx.agent, env, head, ctx.limits) catch |err| {
+            return convErrorToTerm(env, err);
+        };
+        path_keys.append(ctx.agent.gpa, key) catch return makeError(env, "out_of_memory");
+        tail = next;
+    }
+    if (c.enif_is_empty_list(env, tail) == 0) return makeError(env, "invalid_path");
+    if (path_keys.items.len == 0) return makeError(env, "invalid_path");
+
+    const realm = ctx.agent.currentRealm();
+    var current_obj = realm.global_object;
+
+    for (path_keys.items[0 .. path_keys.items.len - 1]) |key| {
+        const next_value = current_obj.get(&ctx.agent, key) catch |err| switch (err) {
+            error.ExceptionThrown => return exceptionToErrorTerm(env, &ctx.agent),
+            error.OutOfMemory => return makeError(env, "out_of_memory"),
+        };
+        if (!next_value.isObject()) return makeError(env, "not_found");
+        current_obj = next_value.asObject();
+    }
+
+    const last_key = path_keys.items[path_keys.items.len - 1];
+    const function = current_obj.get(&ctx.agent, last_key) catch |err| switch (err) {
+        error.ExceptionThrown => return exceptionToErrorTerm(env, &ctx.agent),
+        error.OutOfMemory => return makeError(env, "out_of_memory"),
+    };
+
+    if (function.isUndefined() or function.isNull()) return makeError(env, "not_found");
+    if (!function.isCallable()) return makeError(env, "not_callable");
+
+    const arguments = termListToValues(env, &ctx.agent, argv[2], ctx.limits) catch |err| {
+        return switch (err) {
+            error.ExceptionThrown => exceptionToErrorTerm(env, &ctx.agent),
+            else => convErrorToTerm(env, err),
+        };
+    };
+    defer ctx.agent.gpa.free(arguments);
+
+    const result = function.call(
+        &ctx.agent,
+        Value.from(current_obj),
+        arguments,
+    ) catch |err| switch (err) {
+        error.ExceptionThrown => return exceptionToErrorTerm(env, &ctx.agent),
+        error.OutOfMemory => return makeError(env, "out_of_memory"),
+    };
+
+    const term = valueToTerm(env, &ctx.agent, result, ctx.limits, ctx.limits.max_depth) catch |err| {
+        return switch (err) {
+            error.ExceptionThrown => exceptionToErrorTerm(env, &ctx.agent),
+            else => convErrorToTerm(env, err),
+        };
+    };
+
+    return makeOkTuple(env, term);
+}
+
+pub export fn exjsCollect(env: ?*c.ErlNifEnv, argc: c_int, argv: [*c]const c.ERL_NIF_TERM) c.ERL_NIF_TERM {
+    if (argc != 1) return c.enif_make_badarg(env);
+
+    lockEngine();
+    defer unlockEngine();
+
+    ensureGc();
+    ensureGcThread();
+
+    const ctx = getContext(env, argv[0]) orelse return makeError(env, "invalid_context");
+    if (!isOwner(env, ctx)) return makeError(env, "not_owner");
+
+    c.enif_mutex_lock(ctx.mutex);
+    defer c.enif_mutex_unlock(ctx.mutex);
+
+    if (ctx.closed) return makeError(env, "context_closed");
+
+    kiesel.gc.collect();
+    return c.enif_make_atom(env, "ok");
+}
+
+pub export fn exjsPutModule(env: ?*c.ErlNifEnv, argc: c_int, argv: [*c]const c.ERL_NIF_TERM) c.ERL_NIF_TERM {
+    if (argc != 3) return c.enif_make_badarg(env);
+
+    lockEngine();
+    defer unlockEngine();
+
+    ensureGc();
+    ensureGcThread();
+
+    const ctx = getContext(env, argv[0]) orelse return makeError(env, "invalid_context");
+    if (!isOwner(env, ctx)) return makeError(env, "not_owner");
+
+    c.enif_mutex_lock(ctx.mutex);
+    defer c.enif_mutex_unlock(ctx.mutex);
+
+    if (ctx.closed) return makeError(env, "context_closed");
+
+    const name = termToUtf8(&ctx.agent, env, argv[1], ctx.limits) catch |err| {
+        return convErrorToTerm(env, err);
+    };
+    const source = termToUtf8(&ctx.agent, env, argv[2], ctx.limits) catch |err| {
+        return convErrorToTerm(env, err);
+    };
+
+    ctx.module_sources.put(ctx.agent.gc_allocator, name, source) catch {
+        return makeError(env, "out_of_memory");
+    };
+    ctx.module_cache.clearRetainingCapacity();
+
+    return c.enif_make_atom(env, "ok");
+}
+
+pub export fn exjsEvalModule(env: ?*c.ErlNifEnv, argc: c_int, argv: [*c]const c.ERL_NIF_TERM) c.ERL_NIF_TERM {
+    if (argc != 3) return c.enif_make_badarg(env);
+
+    lockEngine();
+    defer unlockEngine();
+
+    ensureGc();
+    ensureGcThread();
+
+    const ctx = getContext(env, argv[0]) orelse return makeError(env, "invalid_context");
+    if (!isOwner(env, ctx)) return makeError(env, "not_owner");
+
+    c.enif_mutex_lock(ctx.mutex);
+    defer c.enif_mutex_unlock(ctx.mutex);
+
+    if (ctx.closed) return makeError(env, "context_closed");
+
+    var bin: c.ErlNifBinary = undefined;
+    if (c.enif_inspect_binary(env, argv[1], &bin) == 0) {
+        return makeError(env, "invalid_source");
+    }
+    const source = bin.data[0..bin.size];
+    if (source.len > ctx.limits.max_source_bytes) return makeError(env, "source_too_large");
+
+    const module_name = termToUtf8(&ctx.agent, env, argv[2], ctx.limits) catch |err| {
+        return convErrorToTerm(env, err);
+    };
+
+    ctx.evaluations += 1;
+
+    const realm = ctx.agent.currentRealm();
+
+    var diagnostics = Diagnostics.init(ctx.agent.gpa, .{
+        .source = source,
+        .file_name = module_name,
+    });
+    defer diagnostics.deinit();
+
+    const module = SourceTextModule.parse(source, realm, null, .{
+        .diagnostics = &diagnostics,
+    }) catch |err| switch (err) {
+        error.OutOfMemory => return makeError(env, "out_of_memory"),
+        error.ParseError => {
+            const parse_error = diagnostics.first() orelse {
+                return makeErrorMap(env, "SyntaxError", "failed to parse module");
+            };
+            const message = ctx.agent.gpa.print("{f}", .{parse_error.fmt(&diagnostics)}) catch {
+                return makeErrorMap(env, "SyntaxError", "failed to parse module");
+            };
+            defer ctx.agent.gpa.free(message);
+            return makeErrorMap(env, "SyntaxError", message);
+        },
+    };
+
+    module_ctx = ctx;
+    defer module_ctx = null;
+
+    var promise = module.loadRequestedModules(&ctx.agent, null) catch {
+        return makeError(env, "out_of_memory");
+    };
+
+    switch (promise.fields.promise_state) {
+        .pending => return makeError(env, "module_pending"),
+        .rejected => {
+            ctx.agent.exception = .{
+                .value = promise.fields.promise_result,
+                .stack_trace = &.{},
+            };
+            return exceptionToErrorTerm(env, &ctx.agent);
+        },
+        .fulfilled => {},
+    }
+
+    module.link(&ctx.agent) catch |err| switch (err) {
+        error.OutOfMemory => return makeError(env, "out_of_memory"),
+        error.ExceptionThrown => return exceptionToErrorTerm(env, &ctx.agent),
+    };
+
+    promise = module.evaluate(&ctx.agent) catch {
+        return makeError(env, "out_of_memory");
+    };
+
+    switch (promise.fields.promise_state) {
+        .pending => return makeError(env, "module_pending"),
+        .rejected => {
+            ctx.agent.exception = .{
+                .value = promise.fields.promise_result,
+                .stack_trace = &.{},
+            };
+            return exceptionToErrorTerm(env, &ctx.agent);
+        },
+        .fulfilled => {},
+    }
+
+    ctx.agent.drainJobQueue();
+
+    const exports_term = moduleExportsToTerm(env, &ctx.agent, module, ctx.limits) catch |err| {
+        return switch (err) {
+            error.ExceptionThrown => exceptionToErrorTerm(env, &ctx.agent),
+            else => convErrorToTerm(env, err),
+        };
+    };
+
+    return makeOkTuple(env, exports_term);
+}
+
 pub export fn exjsInfo(env: ?*c.ErlNifEnv, argc: c_int, argv: [*c]const c.ERL_NIF_TERM) c.ERL_NIF_TERM {
     if (argc != 1) return c.enif_make_badarg(env);
 
@@ -924,9 +1419,7 @@ pub export fn exjsClose(env: ?*c.ErlNifEnv, argc: c_int, argv: [*c]const c.ERL_N
 
     if (ctx.closed) return makeError(env, "context_already_closed");
 
-    ctx.agent.deinit();
-    ctx.platform.deinit();
-    ctx.closed = true;
+    deinitContext(ctx);
 
     return c.enif_make_atom(env, "ok");
 }
@@ -973,6 +1466,48 @@ var nif_funcs = [_]c.ErlNifFunc{
         .name = "nif_call",
         .arity = 3,
         .fptr = exjsCall,
+        .flags = @intCast(c.ERL_NIF_DIRTY_JOB_CPU_BOUND),
+    },
+    .{
+        .name = "nif_delete",
+        .arity = 2,
+        .fptr = exjsDelete,
+        .flags = @intCast(c.ERL_NIF_DIRTY_JOB_CPU_BOUND),
+    },
+    .{
+        .name = "nif_has",
+        .arity = 2,
+        .fptr = exjsHas,
+        .flags = @intCast(c.ERL_NIF_DIRTY_JOB_CPU_BOUND),
+    },
+    .{
+        .name = "nif_keys",
+        .arity = 1,
+        .fptr = exjsKeys,
+        .flags = @intCast(c.ERL_NIF_DIRTY_JOB_CPU_BOUND),
+    },
+    .{
+        .name = "nif_call_path",
+        .arity = 3,
+        .fptr = exjsCallPath,
+        .flags = @intCast(c.ERL_NIF_DIRTY_JOB_CPU_BOUND),
+    },
+    .{
+        .name = "nif_collect",
+        .arity = 1,
+        .fptr = exjsCollect,
+        .flags = @intCast(c.ERL_NIF_DIRTY_JOB_CPU_BOUND),
+    },
+    .{
+        .name = "nif_put_module",
+        .arity = 3,
+        .fptr = exjsPutModule,
+        .flags = @intCast(c.ERL_NIF_DIRTY_JOB_CPU_BOUND),
+    },
+    .{
+        .name = "nif_eval_module",
+        .arity = 3,
+        .fptr = exjsEvalModule,
         .flags = @intCast(c.ERL_NIF_DIRTY_JOB_CPU_BOUND),
     },
 };
