@@ -27,7 +27,10 @@ defmodule ExJS.MixProject do
   defp package do
     [
       licenses: ["MIT"],
-      links: %{"Kiesel" => "https://kiesel.dev"},
+      links: %{
+        "GitHub" => "https://github.com/afolouyou/ex_js",
+        "Kiesel" => "https://kiesel.dev"
+      },
       files:
         ~w(lib native/ex_js_nif/build.zig native/ex_js_nif/build.zig.zon
                  native/ex_js_nif/src native/ex_js_nif/vendor mix.exs README.md CHANGELOG.md LICENSE)

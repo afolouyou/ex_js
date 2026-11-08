@@ -7,114 +7,114 @@ defmodule ExJSTest do
   end
 
   describe "eval/2" do
-    test "avalia expressões numéricas", %{ctx: ctx} do
+    test "evaluates numeric expressions", %{ctx: ctx} do
       assert {:ok, 3} = ExJS.eval(ctx, "1 + 2")
       assert {:ok, 3.5} = ExJS.eval(ctx, "3.5")
       assert {:ok, -7} = ExJS.eval(ctx, "2 - 9")
     end
 
-    test "avalia strings", %{ctx: ctx} do
+    test "evaluates strings", %{ctx: ctx} do
       assert {:ok, "hello world"} = ExJS.eval(ctx, "\"hello\" + \" \" + \"world\"")
     end
 
-    test "avalia booleanos e null", %{ctx: ctx} do
+    test "evaluates booleans and null", %{ctx: ctx} do
       assert {:ok, true} = ExJS.eval(ctx, "true")
       assert {:ok, false} = ExJS.eval(ctx, "false")
       assert {:ok, nil} = ExJS.eval(ctx, "null")
       assert {:ok, nil} = ExJS.eval(ctx, "undefined")
     end
 
-    test "avalia arrays", %{ctx: ctx} do
+    test "evaluates arrays", %{ctx: ctx} do
       assert {:ok, [1, 2, 3]} = ExJS.eval(ctx, "[1, 2, 3]")
       assert {:ok, []} = ExJS.eval(ctx, "[]")
     end
 
-    test "avalia objetos como mapas", %{ctx: ctx} do
+    test "evaluates objects as maps", %{ctx: ctx} do
       assert {:ok, %{"a" => 1, "b" => "two"}} = ExJS.eval(ctx, "({ a: 1, b: \"two\" })")
     end
 
-    test "avalia estruturas aninhadas", %{ctx: ctx} do
+    test "evaluates nested structures", %{ctx: ctx} do
       assert {:ok, %{"user" => %{"tags" => ["a", "b"], "active" => true}}} =
                ExJS.eval(ctx, "({ user: { tags: [\"a\", \"b\"], active: true } })")
     end
 
-    test "valores especiais de número", %{ctx: ctx} do
+    test "special number values", %{ctx: ctx} do
       assert {:ok, :nan} = ExJS.eval(ctx, "0 / 0")
       assert {:ok, :infinity} = ExJS.eval(ctx, "1 / 0")
       assert {:ok, :negative_infinity} = ExJS.eval(ctx, "-1 / 0")
     end
 
-    test "persiste o estado entre avaliações", %{ctx: ctx} do
+    test "persists state between evaluations", %{ctx: ctx} do
       assert {:ok, 1} = ExJS.eval(ctx, "let contador = 1; contador")
       assert {:ok, 2} = ExJS.eval(ctx, "contador + 1")
     end
 
-    test "retorna erro para ReferenceError", %{ctx: ctx} do
+    test "returns an error for ReferenceError", %{ctx: ctx} do
       assert {:error, %{name: "ReferenceError", message: message}} =
                ExJS.eval(ctx, "nao_existe")
 
       assert message =~ "nao_existe"
     end
 
-    test "retorna erro para TypeError", %{ctx: ctx} do
+    test "returns an error for TypeError", %{ctx: ctx} do
       assert {:error, %{name: "TypeError", message: "boom"}} =
                ExJS.eval(ctx, "throw new TypeError(\"boom\")")
     end
 
-    test "retorna erro para erro de sintaxe", %{ctx: ctx} do
+    test "returns an error for syntax errors", %{ctx: ctx} do
       assert {:error, %{name: "SyntaxError", message: message}} = ExJS.eval(ctx, "function (")
       assert message =~ "Function declaration"
     end
 
-    test "rejeita valores não suportados", %{ctx: ctx} do
+    test "rejects unsupported values", %{ctx: ctx} do
       assert {:error, :unsupported_value} = ExJS.eval(ctx, "(() => 1)")
       assert {:error, :unsupported_value} = ExJS.eval(ctx, "10n")
     end
   end
 
   describe "eval/3" do
-    test "injeta bindings com chaves atom", %{ctx: ctx} do
+    test "injects bindings with atom keys", %{ctx: ctx} do
       assert {:ok, 7} = ExJS.eval(ctx, "x + y", %{x: 3, y: 4})
     end
 
-    test "injeta bindings com chaves string", %{ctx: ctx} do
+    test "injects bindings with string keys", %{ctx: ctx} do
       assert {:ok, 30} = ExJS.eval(ctx, "a + b", %{"a" => 10, "b" => 20})
     end
 
-    test "injeta strings e booleanos", %{ctx: ctx} do
+    test "injects strings and booleans", %{ctx: ctx} do
       assert {:ok, "olá"} = ExJS.eval(ctx, "greeting", %{greeting: "olá"})
       assert {:ok, true} = ExJS.eval(ctx, "ok", %{ok: true})
     end
 
-    test "injeta listas e mapas aninhados", %{ctx: ctx} do
+    test "injects nested lists and maps", %{ctx: ctx} do
       bindings = %{obj: %{"nested" => [10, 20, 30]}}
       assert {:ok, 20} = ExJS.eval(ctx, "obj.nested[1]", bindings)
     end
 
-    test "os bindings ficam visíveis entre avaliações", %{ctx: ctx} do
+    test "bindings stay visible between evaluations", %{ctx: ctx} do
       assert {:ok, 5} = ExJS.eval(ctx, "valor", %{valor: 5})
       assert {:ok, 6} = ExJS.eval(ctx, "valor + 1")
     end
 
-    test "retorna erro para valor de binding não suportado", %{ctx: ctx} do
+    test "returns an error for unsupported binding values", %{ctx: ctx} do
       assert {:error, :unsupported_binding_value} = ExJS.eval(ctx, "x", %{x: make_ref()})
     end
   end
 
   describe "close/1" do
-    test "fecha o contexto", %{ctx: ctx} do
+    test "closes the context", %{ctx: ctx} do
       assert :ok = ExJS.close(ctx)
       assert {:error, :context_closed} = ExJS.eval(ctx, "1")
     end
 
-    test "fechar duas vezes retorna erro", %{ctx: ctx} do
+    test "closing twice returns an error", %{ctx: ctx} do
       assert :ok = ExJS.close(ctx)
       assert {:error, :context_already_closed} = ExJS.close(ctx)
     end
   end
 
   describe "info/1" do
-    test "conta avaliações", %{ctx: ctx} do
+    test "counts evaluations", %{ctx: ctx} do
       assert {:ok, %{evaluations: 0}} = ExJS.info(ctx)
       assert {:ok, 1} = ExJS.eval(ctx, "1")
       assert {:ok, %{evaluations: 1}} = ExJS.info(ctx)
@@ -123,7 +123,7 @@ defmodule ExJSTest do
     end
   end
 
-  describe "limites" do
+  describe "limits" do
     test "max_depth" do
       {:ok, ctx} = ExJS.new(max_depth: 3)
       assert {:error, :max_depth_exceeded} = ExJS.eval(ctx, "[[[[1]]]]")
@@ -155,15 +155,15 @@ defmodule ExJSTest do
       assert :ok = ExJS.close(ctx)
     end
 
-    test "rejeita opções inválidas" do
+    test "rejects invalid options" do
       assert_raise ArgumentError, fn -> ExJS.new(max_depth: 0) end
       assert_raise ArgumentError, fn -> ExJS.new(max_depth: "x") end
       assert_raise ArgumentError, fn -> ExJS.new(unknown: 1) end
     end
   end
 
-  describe "scheduler e concorrência" do
-    test "eval pesado roda em dirty scheduler sem congelar outros processos" do
+  describe "scheduler and concurrency" do
+    test "heavy eval runs on a dirty scheduler without freezing other processes" do
       busy =
         Task.async(fn ->
           {:ok, ctx} = ExJS.new()
@@ -186,7 +186,7 @@ defmodule ExJSTest do
       assert {:ok, "done"} = Task.await(busy, 5_000)
     end
 
-    test "contextos independentes funcionam em processos concorrentes" do
+    test "independent contexts work in concurrent processes" do
       results =
         1..20
         |> Enum.map(fn i ->
@@ -202,7 +202,7 @@ defmodule ExJSTest do
       assert results == Enum.map(1..20, &{:ok, &1 * 2})
     end
 
-    test "criação e fechamento repetidos não corrompem estado" do
+    test "repeated creation and closing do not corrupt state" do
       Enum.each(1..200, fn i ->
         {:ok, ctx} = ExJS.new()
         assert {:ok, ^i} = ExJS.eval(ctx, "n", %{n: i})
@@ -211,8 +211,8 @@ defmodule ExJSTest do
     end
   end
 
-  describe "módulos ES" do
-    test "export default e import nomeado", %{ctx: ctx} do
+  describe "ES modules" do
+    test "export default and named import", %{ctx: ctx} do
       assert :ok =
                ExJS.put_module(
                  ctx,
@@ -224,7 +224,7 @@ defmodule ExJSTest do
                ExJS.eval_module(ctx, ~S|import { sum } from "math"; export default sum(1, 2)|)
     end
 
-    test "exports nomeados", %{ctx: ctx} do
+    test "named exports", %{ctx: ctx} do
       assert :ok = ExJS.put_module(ctx, "math", "export const sum = (a, b) => a + b")
 
       assert {:ok, %{"total" => 5}} =
@@ -234,7 +234,7 @@ defmodule ExJSTest do
                )
     end
 
-    test "import de namespace", %{ctx: ctx} do
+    test "namespace import", %{ctx: ctx} do
       assert :ok = ExJS.put_module(ctx, "math", "export const a = 1; export const b = 2")
 
       assert {:ok, %{"count" => 2}} =
@@ -244,20 +244,20 @@ defmodule ExJSTest do
                )
     end
 
-    test "módulo inexistente retorna erro", %{ctx: ctx} do
+    test "missing module returns an error", %{ctx: ctx} do
       assert {:error, %{name: "Error", message: message}} =
                ExJS.eval_module(ctx, ~S|import { x } from "missing"; export default x|)
 
       assert message =~ "not found"
     end
 
-    test "erro de sintaxe no módulo", %{ctx: ctx} do
+    test "syntax error in the module", %{ctx: ctx} do
       assert {:error, %{name: "SyntaxError"}} = ExJS.eval_module(ctx, "export default (")
     end
   end
 
   describe "eval_file/2" do
-    test "executa arquivo JavaScript", %{ctx: ctx} do
+    test "executes a JavaScript file", %{ctx: ctx} do
       path = Path.join(System.tmp_dir!(), "ex_js_#{System.unique_integer([:positive])}.js")
       File.write!(path, "let base = 20; base + 22")
       on_exit(fn -> File.rm(path) end)
@@ -265,13 +265,13 @@ defmodule ExJSTest do
       assert {:ok, 42} = ExJS.eval_file(ctx, path)
     end
 
-    test "retorna erro para arquivo inexistente", %{ctx: ctx} do
+    test "returns an error for a missing file", %{ctx: ctx} do
       assert {:error, :enoent} = ExJS.eval_file(ctx, "/tmp/definitely-missing-exjs.js")
     end
   end
 
-  describe "delete/2, has?/2 e keys/1" do
-    test "remove e consulta variáveis", %{ctx: ctx} do
+  describe "delete/2, has?/2 and keys/1" do
+    test "removes and queries variables", %{ctx: ctx} do
       :ok = ExJS.set(ctx, "temp", 1)
       assert {:ok, true} = ExJS.has?(ctx, "temp")
       assert :ok = ExJS.delete(ctx, "temp")
@@ -279,27 +279,27 @@ defmodule ExJSTest do
       assert {:ok, false} = ExJS.has?(ctx, "never_existed")
     end
 
-    test "lista chaves enumeráveis", %{ctx: ctx} do
+    test "lists enumerable keys", %{ctx: ctx} do
       :ok = ExJS.set(ctx, "custom_key", 1)
       assert {:ok, keys} = ExJS.keys(ctx)
       assert "custom_key" in keys
     end
   end
 
-  describe "call_path/3 e collect/1" do
-    test "chama função por caminho", %{ctx: ctx} do
+  describe "call_path/3 and collect/1" do
+    test "calls a function by path", %{ctx: ctx} do
       assert {:ok, 9} = ExJS.call_path(ctx, ["Math", "max"], [1, 9, 3])
       assert {:error, :not_found} = ExJS.call_path(ctx, ["Math", "nope"], [])
       assert {:error, :not_found} = ExJS.call_path(ctx, ["Nope", "max"], [])
     end
 
-    test "coleta explícita do GC", %{ctx: ctx} do
+    test "explicit GC collection", %{ctx: ctx} do
       assert :ok = ExJS.collect(ctx)
     end
   end
 
-  describe "ciclo de vida" do
-    test "contexto pertence ao processo que o criou" do
+  describe "lifecycle" do
+    test "context belongs to the process that created it" do
       {:ok, ctx} = ExJS.new()
 
       task =
@@ -311,7 +311,7 @@ defmodule ExJSTest do
       assert :ok = ExJS.close(ctx)
     end
 
-    test "contexto criado em outro processo funciona nele" do
+    test "context created in another process works there" do
       task =
         Task.async(fn ->
           {:ok, ctx} = ExJS.new()
@@ -323,7 +323,7 @@ defmodule ExJSTest do
       assert {:ok, 42} = Task.await(task)
     end
 
-    test "destrutor não quebra quando o processo dono morre" do
+    test "destructor does not crash when the owner process dies" do
       parent = self()
 
       spawn(fn ->
@@ -333,7 +333,7 @@ defmodule ExJSTest do
       end)
 
       assert_receive :ready, 5_000
-      # Dá tempo do processo morrer e do recurso ser coletado.
+      # Allow time for the process to die and the resource to be collected.
       Process.sleep(50)
 
       {:ok, ctx} = ExJS.new()
@@ -343,7 +343,7 @@ defmodule ExJSTest do
   end
 
   describe "set/3" do
-    test "define valores simples", %{ctx: ctx} do
+    test "sets simple values", %{ctx: ctx} do
       assert :ok = ExJS.set(ctx, "answer", 42)
       assert {:ok, 42} = ExJS.get(ctx, "answer")
 
@@ -357,61 +357,61 @@ defmodule ExJSTest do
       assert {:ok, nil} = ExJS.get(ctx, "nothing")
     end
 
-    test "define listas e mapas aninhados", %{ctx: ctx} do
+    test "sets nested lists and maps", %{ctx: ctx} do
       assert :ok = ExJS.set(ctx, "data", %{tags: ["zig", "elixir"], meta: %{"ok" => true}})
 
       assert {:ok, %{"tags" => ["zig", "elixir"], "meta" => %{"ok" => true}}} =
                ExJS.get(ctx, "data")
     end
 
-    test "persiste entre avaliações", %{ctx: ctx} do
+    test "persists between evaluations", %{ctx: ctx} do
       assert :ok = ExJS.set(ctx, "counter", 1)
       assert {:ok, 2} = ExJS.eval(ctx, "counter + 1")
       assert :ok = ExJS.set(ctx, "counter", 10)
       assert {:ok, 11} = ExJS.eval(ctx, "counter + 1")
     end
 
-    test "rejeita valores não suportados", %{ctx: ctx} do
+    test "rejects unsupported values", %{ctx: ctx} do
       assert {:error, :unsupported_value} = ExJS.set(ctx, "fn", fn -> :ok end)
       assert {:error, :unsupported_value} = ExJS.set(ctx, "ref", make_ref())
     end
 
-    test "respeita limites", _ do
+    test "respects limits", _ do
       {:ok, ctx} = ExJS.new(max_depth: 3)
       assert {:error, :max_depth_exceeded} = ExJS.set(ctx, "deep", [[[[1]]]])
       assert :ok = ExJS.close(ctx)
     end
 
-    test "falha em contexto fechado", %{ctx: ctx} do
+    test "fails on a closed context", %{ctx: ctx} do
       assert :ok = ExJS.close(ctx)
       assert {:error, :context_closed} = ExJS.set(ctx, "x", 1)
     end
 
-    test "falha para outro processo", %{ctx: ctx} do
+    test "fails for another process", %{ctx: ctx} do
       task = Task.async(fn -> ExJS.set(ctx, "x", 1) end)
       assert {:error, :not_owner} = Task.await(task)
     end
   end
 
   describe "get/2" do
-    test "distingue ausente de null", %{ctx: ctx} do
+    test "distinguishes missing from null", %{ctx: ctx} do
       assert {:ok, _} = ExJS.eval(ctx, "var nullable = null; var undef = undefined")
       assert {:ok, nil} = ExJS.get(ctx, "nullable")
       assert {:ok, nil} = ExJS.get(ctx, "undef")
       assert {:error, :not_found} = ExJS.get(ctx, "missing")
     end
 
-    test "lê estruturas aninhadas", %{ctx: ctx} do
+    test "reads nested structures", %{ctx: ctx} do
       assert {:ok, _} = ExJS.eval(ctx, "var obj = { a: [1, { b: 2 }] }")
       assert {:ok, %{"a" => [1, %{"b" => 2}]}} = ExJS.get(ctx, "obj")
     end
 
-    test "rejeita valores não suportados", %{ctx: ctx} do
+    test "rejects unsupported values", %{ctx: ctx} do
       assert {:ok, _} = ExJS.eval(ctx, "var fn = () => 1")
       assert {:error, :unsupported_value} = ExJS.get(ctx, "fn")
     end
 
-    test "propaga erro de getter", %{ctx: ctx} do
+    test "propagates getter errors", %{ctx: ctx} do
       assert {:ok, _} =
                ExJS.eval(ctx, """
                Object.defineProperty(globalThis, "boom", {
@@ -422,7 +422,7 @@ defmodule ExJSTest do
       assert {:error, %{name: "TypeError", message: "getter failed"}} = ExJS.get(ctx, "boom")
     end
 
-    test "respeita limites de retorno", _ do
+    test "respects return limits", _ do
       {:ok, ctx} = ExJS.new(max_collection_size: 3)
       assert {:ok, _} = ExJS.eval(ctx, "var big = [1, 2, 3, 4]")
       assert {:error, :collection_too_large} = ExJS.get(ctx, "big")
@@ -431,12 +431,12 @@ defmodule ExJSTest do
   end
 
   describe "call/3" do
-    test "chama função com argumentos numéricos", %{ctx: ctx} do
+    test "calls a function with numeric arguments", %{ctx: ctx} do
       assert {:ok, _} = ExJS.eval(ctx, "function sum(a, b) { return a + b }")
       assert {:ok, 5} = ExJS.call(ctx, "sum", [2, 3])
     end
 
-    test "aceita argumentos e retornos complexos", %{ctx: ctx} do
+    test "accepts complex arguments and return values", %{ctx: ctx} do
       assert {:ok, _} =
                ExJS.eval(ctx, "function pick(obj, index) { return obj.items[index] }")
 
@@ -444,7 +444,7 @@ defmodule ExJSTest do
                ExJS.call(ctx, "pick", [%{items: [%{value: 10}, %{value: 20}]}, 1])
     end
 
-    test "usa globalThis como this", %{ctx: ctx} do
+    test "uses globalThis as this", %{ctx: ctx} do
       assert {:ok, _} =
                ExJS.eval(ctx, """
                globalThis.counter = 0
@@ -458,30 +458,30 @@ defmodule ExJSTest do
       assert {:ok, 2} = ExJS.call(ctx, "increment")
     end
 
-    test "erro quando a função não existe", %{ctx: ctx} do
+    test "error when the function does not exist", %{ctx: ctx} do
       assert {:error, :not_found} = ExJS.call(ctx, "missing")
     end
 
-    test "erro quando o global não é chamável", %{ctx: ctx} do
+    test "error when the global is not callable", %{ctx: ctx} do
       assert :ok = ExJS.set(ctx, "value", 42)
       assert {:error, :not_callable} = ExJS.call(ctx, "value")
     end
 
-    test "propaga exceção JavaScript", %{ctx: ctx} do
+    test "propagates JavaScript exceptions", %{ctx: ctx} do
       assert {:ok, _} =
                ExJS.eval(ctx, "function explode() { throw new RangeError(\"boom\") }")
 
       assert {:error, %{name: "RangeError", message: "boom"}} = ExJS.call(ctx, "explode")
     end
 
-    test "respeita limites dos argumentos", _ do
+    test "respects argument limits", _ do
       {:ok, ctx} = ExJS.new(max_collection_size: 3)
       assert {:ok, _} = ExJS.eval(ctx, "function size(xs) { return xs.length }")
       assert {:error, :collection_too_large} = ExJS.call(ctx, "size", [[1, 2, 3, 4]])
       assert :ok = ExJS.close(ctx)
     end
 
-    test "rejeita retorno não suportado", %{ctx: ctx} do
+    test "rejects unsupported return values", %{ctx: ctx} do
       assert {:ok, _} = ExJS.eval(ctx, "function make() { return () => 1 }")
       assert {:error, :unsupported_value} = ExJS.call(ctx, "make")
     end

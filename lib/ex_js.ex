@@ -1,21 +1,21 @@
 defmodule ExJS do
   @moduledoc """
-  Embedding do motor JavaScript Kiesel no Elixir via NIF.
+  Embedding the Kiesel JavaScript engine in Elixir via a NIF.
 
-  ## Exemplo
+  ## Example
 
       {:ok, ctx} = ExJS.new()
       {:ok, 3} = ExJS.eval(ctx, "1 + 2")
       :ok = ExJS.close(ctx)
 
-  Os valores retornados são compatíveis com JSON: `nil`, booleanos, números,
-  strings, listas e mapas com chaves string. Valores especiais como `NaN` e
-  `Infinity` são retornados como os átomos `:nan`, `:infinity` e
+  Returned values are JSON-compatible: `nil`, booleans, numbers, strings,
+  lists and maps with string keys. Special values such as `NaN` and
+  `Infinity` are returned as the atoms `:nan`, `:infinity` and
   `:negative_infinity`.
 
-  ## Limites
+  ## Limits
 
-  `new/1` aceita limites para conter uso de memória e profundidade:
+  `new/1` accepts limits to bound memory usage and nesting depth:
 
       ExJS.new(
         max_depth: 64,
@@ -24,23 +24,23 @@ defmodule ExJS do
         max_source_bytes: 1_048_576
       )
 
-  ## Modos de execução
+  ## Execution modes
 
-    * `:embedded` (padrão) - NIF com Kiesel no processo BEAM. Baixa latência,
-      indicado para código confiável.
-    * `:isolated` - processo separado via Port, com timeout real e kill de
-      loops infinitos. Indicado para código não confiável.
+    * `:embedded` (default) - NIF with Kiesel inside the BEAM process. Low
+      latency, suitable for trusted code.
+    * `:isolated` - separate process via Port, with real timeouts and
+      infinite-loop killing. Suitable for untrusted code.
 
         {:ok, ctx} = ExJS.new(mode: :isolated, timeout: 1_000)
 
-  ## Limitações
+  ## Limitations
 
-    * No modo `:embedded` não há timeout nem interrupção de loops infinitos.
-      `eval` roda em dirty CPU scheduler, então não bloqueia os schedulers
-      normais do BEAM.
-    * No modo `:isolated`, valores são transportados como JSON: `NaN` e
-      `Infinity` viram `nil`, e funções não podem ser retornadas.
-    * Erros JavaScript retornam `{:error, %{name: ..., message: ...}}`.
+    * In `:embedded` mode there is no timeout or infinite-loop interruption.
+      `eval` runs on a dirty CPU scheduler, so it does not block normal BEAM
+      schedulers.
+    * In `:isolated` mode, values travel as JSON: `NaN` and `Infinity` become
+      `nil`, and functions cannot be returned.
+    * JavaScript errors return `{:error, %{name: ..., message: ...}}`.
   """
 
   @type context :: reference() | ExJS.Isolated.Context.t()
@@ -73,14 +73,16 @@ defmodule ExJS do
   end
 
   @doc """
-  Cria um novo contexto JavaScript isolado.
+  Creates a new isolated JavaScript context.
 
-  ## Opções
+  ## Options
 
-    * `:max_depth` - profundidade máxima de aninhamento (padrão: 64)
-    * `:max_collection_size` - itens máximos em listas/mapas (padrão: 10_000)
-    * `:max_string_bytes` - tamanho máximo de strings (padrão: 1 MiB)
-    * `:max_source_bytes` - tamanho máximo do código avaliado (padrão: 1 MiB)
+    * `:mode` - `:embedded` (default) or `:isolated`
+    * `:timeout` - isolated mode timeout in milliseconds (default: 5_000)
+    * `:max_depth` - maximum nesting depth (default: 64)
+    * `:max_collection_size` - maximum items in lists/maps (default: 10_000)
+    * `:max_string_bytes` - maximum string size (default: 1 MiB)
+    * `:max_source_bytes` - maximum evaluated source size (default: 1 MiB)
   """
   @spec new(keyword()) :: {:ok, context()} | {:error, term()}
   def new(opts \\ []) when is_list(opts) do
@@ -99,9 +101,9 @@ defmodule ExJS do
   end
 
   @doc """
-  Define uma variável global no contexto.
+  Sets a global variable in the context.
 
-  ## Exemplo
+  ## Example
 
       iex> {:ok, ctx} = ExJS.new()
       iex> :ok = ExJS.set(ctx, "config", %{enabled: true})
@@ -119,10 +121,10 @@ defmodule ExJS do
   end
 
   @doc """
-  Lê uma variável global do contexto.
+  Reads a global variable from the context.
 
-  Retorna `{:error, :not_found}` quando a propriedade não existe. Valores
-  JavaScript `null` e `undefined` retornam `{:ok, nil}`.
+  Returns `{:error, :not_found}` when the property does not exist. JavaScript
+  `null` and `undefined` values return `{:ok, nil}`.
   """
   @spec get(context(), binary() | atom()) :: {:ok, term()} | {:error, term()}
   def get(%ExJS.Isolated.Context{} = ctx, name) when is_binary(name) or is_atom(name) do
@@ -134,9 +136,9 @@ defmodule ExJS do
   end
 
   @doc """
-  Chama uma função global do contexto, usando `globalThis` como `this`.
+  Calls a global function, using `globalThis` as `this`.
 
-  ## Exemplo
+  ## Example
 
       iex> {:ok, ctx} = ExJS.new()
       iex> :ok = ExJS.eval(ctx, "function sum(a, b) { return a + b }")
@@ -156,7 +158,7 @@ defmodule ExJS do
   end
 
   @doc """
-  Avalia um script JavaScript no contexto.
+  Evaluates a JavaScript script in the context.
   """
   @spec eval(context(), binary()) :: {:ok, term()} | {:error, js_error() | term()}
   def eval(%ExJS.Isolated.Context{} = ctx, source) when is_binary(source) do
@@ -168,12 +170,12 @@ defmodule ExJS do
   end
 
   @doc """
-  Avalia um script JavaScript com variáveis injetadas no escopo global.
+  Evaluates a JavaScript script with variables injected into global scope.
 
-  As chaves do mapa podem ser strings ou átomos. Os valores aceitam os mesmos
-  tipos compatíveis com JSON do retorno de `eval/2`.
+  Map keys may be strings or atoms. Values accept the same JSON-compatible
+  types as the return value of `eval/2`.
 
-  ## Exemplo
+  ## Example
 
       iex> {:ok, ctx} = ExJS.new()
       iex> {:ok, 7} = ExJS.eval(ctx, "x + y", %{x: 3, y: 4})
@@ -190,9 +192,9 @@ defmodule ExJS do
   end
 
   @doc """
-  Avalia um arquivo JavaScript como script.
+  Evaluates a JavaScript file as a script.
 
-  Retorna `{:error, posix}` quando o arquivo não pode ser lido.
+  Returns `{:error, posix}` when the file cannot be read.
   """
   @spec eval_file(context(), Path.t()) :: {:ok, term()} | {:error, term()}
   def eval_file(ctx, path) when is_binary(path) do
@@ -202,7 +204,7 @@ defmodule ExJS do
   end
 
   @doc """
-  Avalia um arquivo JavaScript com variáveis injetadas.
+  Evaluates a JavaScript file with injected variables.
   """
   @spec eval_file(context(), Path.t(), map()) :: {:ok, term()} | {:error, term()}
   def eval_file(ctx, path, bindings)
@@ -213,9 +215,9 @@ defmodule ExJS do
   end
 
   @doc """
-  Registra um módulo ES no contexto, para ser resolvido por `import`.
+  Registers an ES module in the context, to be resolved by `import`.
 
-  ## Exemplo
+  ## Example
 
       :ok = ExJS.put_module(ctx, "math", "export const sum = (a, b) => a + b")
 
@@ -231,14 +233,14 @@ defmodule ExJS do
   end
 
   @doc """
-  Avalia um módulo ES e retorna seus exports.
+  Evaluates an ES module and returns its exports.
 
-  ## Opções
+  ## Options
 
-    * `:name` - nome do módulo para mensagens de erro (padrão: `"main"`)
+    * `:name` - module name for error messages (default: `"main"`)
 
-  Imports são resolvidos apenas contra módulos registrados com
-  `put_module/3`; não há acesso ao filesystem.
+  Imports are resolved only against modules registered with `put_module/3`;
+  there is no filesystem access.
   """
   @spec eval_module(context(), binary(), keyword()) :: {:ok, map()} | {:error, term()}
   def eval_module(ctx, source, opts \\ [])
@@ -257,9 +259,9 @@ defmodule ExJS do
   end
 
   @doc """
-  Remove uma variável global do contexto.
+  Deletes a global variable from the context.
 
-  Retorna `:ok` quando a propriedade não existe ou foi removida.
+  Returns `:ok` when the property does not exist or was removed.
   """
   @spec delete(context(), binary() | atom()) :: :ok | {:error, term()}
   def delete(%ExJS.Isolated.Context{} = ctx, name) when is_binary(name) or is_atom(name) do
@@ -271,7 +273,7 @@ defmodule ExJS do
   end
 
   @doc """
-  Verifica se uma variável global existe.
+  Checks whether a global variable exists.
   """
   @spec has?(context(), binary() | atom()) :: {:ok, boolean()} | {:error, term()}
   def has?(%ExJS.Isolated.Context{} = ctx, name) when is_binary(name) or is_atom(name) do
@@ -283,7 +285,7 @@ defmodule ExJS do
   end
 
   @doc """
-  Lista as chaves enumeráveis próprias de `globalThis`.
+  Lists the own enumerable keys of `globalThis`.
   """
   @spec keys(context()) :: {:ok, [binary()]} | {:error, term()}
   def keys(%ExJS.Isolated.Context{} = ctx) do
@@ -295,9 +297,9 @@ defmodule ExJS do
   end
 
   @doc """
-  Chama uma função por caminho de propriedades.
+  Calls a function by property path.
 
-  ## Exemplo
+  ## Example
 
       iex> {:ok, ctx} = ExJS.new()
       iex> {:ok, 3} = ExJS.call_path(ctx, ["Math", "max"], [1, 2, 3])
@@ -316,9 +318,9 @@ defmodule ExJS do
   end
 
   @doc """
-  Executa uma coleta explícita do GC do Kiesel.
+  Runs an explicit Kiesel GC collection.
 
-  Não é necessário no uso normal; útil para diagnóstico e testes.
+  Not needed in normal usage; useful for diagnostics and tests.
   """
   @spec collect(context()) :: :ok | {:error, term()}
   def collect(%ExJS.Isolated.Context{} = ctx) do
@@ -330,9 +332,9 @@ defmodule ExJS do
   end
 
   @doc """
-  Retorna informações do contexto.
+  Returns context information.
 
-  ## Exemplo
+  ## Example
 
       {:ok, %{evaluations: 3}} = ExJS.info(ctx)
   """
@@ -346,7 +348,7 @@ defmodule ExJS do
   end
 
   @doc """
-  Fecha explicitamente o contexto.
+  Explicitly closes the context.
   """
   @spec close(context()) :: :ok | {:error, term()}
   def close(%ExJS.Isolated.Context{} = ctx) do

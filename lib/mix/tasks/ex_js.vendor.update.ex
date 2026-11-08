@@ -1,19 +1,19 @@
 defmodule Mix.Tasks.ExJs.Vendor.Update do
   use Mix.Task
 
-  @shortdoc "Vendoriza uma revisão do Kiesel"
+  @shortdoc "Vendors a Kiesel revision"
 
   @moduledoc """
-  Copia o código-fonte do Kiesel para `native/ex_js_nif/vendor/kiesel`.
+  Copies the Kiesel source into `native/ex_js_nif/vendor/kiesel`.
 
       mix ex_js.vendor.update --ref main
-      mix ex_js.vendor.update --repo /caminho/local --ref HEAD
+      mix ex_js.vendor.update --repo /local/path --ref HEAD
 
-  Opções:
+  Options:
 
-    * `:ref` - branch, tag ou commit (padrão: `main`)
-    * `:repo` - URL ou caminho do repositório
-      (padrão: `https://codeberg.org/kiesel-js/kiesel`)
+    * `:ref` - branch, tag or commit (default: `main`)
+    * `:repo` - repository URL or path
+      (default: `https://codeberg.org/kiesel-js/kiesel`)
   """
 
   @default_repo "https://codeberg.org/kiesel-js/kiesel"
@@ -34,14 +34,14 @@ defmodule Mix.Tasks.ExJs.Vendor.Update do
     File.rm_rf!(tmp_dir)
 
     try do
-      Mix.shell().info("Clonando #{repo} (#{ref})...")
+      Mix.shell().info("Cloning #{repo} (#{ref})...")
       git!(["clone", "--quiet", repo, tmp_dir])
       git!(["-C", tmp_dir, "checkout", "--quiet", ref])
 
       copy_vendor(tmp_dir, vendor_dir, ref, repo)
 
-      Mix.shell().info("Kiesel vendorizado em #{vendor_dir}")
-      Mix.shell().info("Revise as mudanças e rode: mix compile && mix test")
+      Mix.shell().info("Kiesel vendored into #{vendor_dir}")
+      Mix.shell().info("Review the changes and run: mix compile && mix test")
     after
       File.rm_rf!(tmp_dir)
     end
@@ -91,13 +91,13 @@ defmodule Mix.Tasks.ExJs.Vendor.Update do
     license=MIT
     """)
 
-    Mix.shell().info("Revisão #{ref} -> #{commit}")
+    Mix.shell().info("Revision #{ref} -> #{commit}")
   end
 
   defp git!(args) do
     case System.cmd("git", args, stderr_to_stdout: true) do
       {out, 0} -> out
-      {out, status} -> Mix.raise("git #{Enum.join(args, " ")} falhou (#{status}):\n#{out}")
+      {out, status} -> Mix.raise("git #{Enum.join(args, " ")} failed (#{status}):\n#{out}")
     end
   end
 end

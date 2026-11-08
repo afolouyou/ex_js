@@ -4,7 +4,7 @@ defmodule ExJSStressTest do
   @moduletag :stress
   @moduletag timeout: 120_000
 
-  test "500 contextos sequenciais" do
+  test "500 sequential contexts" do
     Enum.each(1..500, fn i ->
       {:ok, ctx} = ExJS.new()
       assert {:ok, ^i} = ExJS.eval(ctx, "n", %{n: i})
@@ -12,7 +12,7 @@ defmodule ExJSStressTest do
     end)
   end
 
-  test "50 processos concorrentes com contextos próprios" do
+  test "50 concurrent processes with their own contexts" do
     results =
       1..50
       |> Enum.map(fn i ->
@@ -32,7 +32,7 @@ defmodule ExJSStressTest do
     assert Enum.sort(results) == Enum.to_list(1..50)
   end
 
-  test "unicode, regexp e exceções" do
+  test "unicode, regexp and exceptions" do
     {:ok, ctx} = ExJS.new()
 
     assert {:ok, "ação 🚀"} = ExJS.eval(ctx, ~S|"ação 🚀"|)
@@ -45,7 +45,7 @@ defmodule ExJSStressTest do
     assert :ok = ExJS.close(ctx)
   end
 
-  test "objetos grandes e profundos dentro dos limites" do
+  test "large and deep objects within limits" do
     {:ok, ctx} = ExJS.new(max_collection_size: 20_000, max_depth: 100)
 
     assert {:ok, list} = ExJS.eval(ctx, "Array.from({length: 5000}, (_, i) => i)")
@@ -63,7 +63,7 @@ defmodule ExJSStressTest do
     assert :ok = ExJS.close(ctx)
   end
 
-  test "pressão de GC" do
+  test "GC pressure" do
     {:ok, ctx} = ExJS.new()
 
     Enum.each(1..2000, fn i ->

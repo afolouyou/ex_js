@@ -1,7 +1,9 @@
 # ExJS
 
-Execução de JavaScript no Elixir via [Kiesel](https://kiesel.dev), um motor
-JavaScript escrito em Zig, embutido como NIF.
+[![CI](https://github.com/afolouyou/ex_js/actions/workflows/ci.yml/badge.svg)](https://github.com/afolouyou/ex_js/actions/workflows/ci.yml)
+
+JavaScript execution for Elixir, powered by [Kiesel](https://kiesel.dev), a
+JavaScript engine written in Zig, embedded as a NIF.
 
 ```elixir
 {:ok, ctx} = ExJS.new()
@@ -23,31 +25,31 @@ JavaScript escrito em Zig, embutido como NIF.
 
 ## API
 
-| Função | Descrição |
+| Function | Description |
 | --- | --- |
-| `new/0,1` | Cria um contexto JavaScript isolado |
-| `eval/2` | Avalia um script e retorna o resultado |
-| `eval/3` | Avalia um script injetando variáveis globais |
-| `eval_file/2,3` | Avalia um arquivo `.js` |
-| `set/3` | Define uma variável global |
-| `get/2` | Lê uma variável global |
-| `delete/2` | Remove uma variável global |
-| `has?/2` | Verifica se uma variável existe |
-| `keys/1` | Lista chaves enumeráveis de `globalThis` |
-| `call/3` | Chama uma função global |
-| `call_path/3` | Chama uma função por caminho (`["Math", "max"]`) |
-| `put_module/3` | Registra um módulo ES em memória |
-| `eval_module/3` | Avalia um módulo ES e retorna exports |
-| `collect/1` | Executa coleta explícita do GC |
-| `info/1` | Retorna informações do contexto |
-| `close/1` | Fecha o contexto explicitamente |
+| `new/0,1` | Creates an isolated JavaScript context |
+| `eval/2` | Evaluates a script and returns the result |
+| `eval/3` | Evaluates a script with injected global variables |
+| `eval_file/2,3` | Evaluates a `.js` file |
+| `set/3` | Sets a global variable |
+| `get/2` | Reads a global variable |
+| `delete/2` | Deletes a global variable |
+| `has?/2` | Checks whether a variable exists |
+| `keys/1` | Lists enumerable keys of `globalThis` |
+| `call/3` | Calls a global function |
+| `call_path/3` | Calls a function by path (`["Math", "max"]`) |
+| `put_module/3` | Registers an in-memory ES module |
+| `eval_module/3` | Evaluates an ES module and returns its exports |
+| `collect/1` | Runs an explicit GC collection |
+| `info/1` | Returns context information |
+| `close/1` | Explicitly closes the context |
 
-## Modos de execução
+## Execution modes
 
-### `:embedded` (padrão)
+### `:embedded` (default)
 
-NIF com Kiesel dentro do processo BEAM. Menor latência, indicado para código
-confiável.
+Kiesel runs as a NIF inside the BEAM process. Lowest latency, suitable for
+trusted code.
 
 ```elixir
 {:ok, ctx} = ExJS.new()
@@ -55,8 +57,8 @@ confiável.
 
 ### `:isolated`
 
-Processo separado via Port, com timeout real e kill de loops infinitos.
-Indicado para código não confiável.
+A separate OS process managed through a Port, with real timeouts and the
+ability to kill infinite loops. Suitable for untrusted code.
 
 ```elixir
 {:ok, ctx} = ExJS.new(mode: :isolated, timeout: 1_000)
@@ -65,14 +67,13 @@ Indicado para código não confiável.
 {:error, :context_closed} = ExJS.eval(ctx, "1")
 ```
 
-No modo isolado, valores são transportados como JSON: `NaN`/`Infinity` viram
-`nil` e funções não podem ser retornadas. Módulos ES não são suportados nesse
-modo.
+In isolated mode values travel as JSON: `NaN`/`Infinity` become `nil`, and
+functions cannot be returned. ES modules are not supported in this mode.
 
-## Módulos ES
+## ES modules
 
-Imports são resolvidos apenas contra módulos registrados em memória — sem
-acesso ao filesystem.
+Imports are resolved only against modules registered in memory — there is no
+filesystem access.
 
 ```elixir
 {:ok, ctx} = ExJS.new()
@@ -83,33 +84,31 @@ acesso ao filesystem.
   ExJS.eval_module(ctx, ~s|import { sum } from "math"; export default sum(1, 2)|)
 ```
 
-## Limites
+### Value conversion
 
-### Conversão de valores
-
-Valores compatíveis com JSON são convertidos automaticamente:
+JSON-compatible values are converted automatically:
 
 | JavaScript | Elixir |
 | --- | --- |
 | `null` / `undefined` | `nil` |
 | `true` / `false` | `true` / `false` |
-| number inteiro seguro | `integer` |
-| number fracionário | `float` |
+| safe integer number | `integer` |
+| fractional number | `float` |
 | string | `binary` |
 | array | `list` |
-| objeto simples | `map` com chaves string |
+| plain object | `map` with string keys |
 
-Valores especiais: `NaN`, `Infinity` e `-Infinity` viram `:nan`, `:infinity`
-e `:negative_infinity`. Funções, símbolos e `BigInt` retornam
+Special values: `NaN`, `Infinity` and `-Infinity` become `:nan`, `:infinity`
+and `:negative_infinity`. Functions, symbols and `BigInt` return
 `{:error, :unsupported_value}`.
 
-Bindings (`eval/3`), `set/3` e argumentos de `call/3` aceitam mapas com chaves
-atom ou string e os mesmos tipos JSON-compatíveis, incluindo listas e mapas
-aninhados.
+Bindings (`eval/3`), `set/3` and `call/3` arguments accept maps with atom or
+string keys and the same JSON-compatible types, including nested lists and
+maps.
 
-### Limites
+### Limits
 
-`new/1` aceita limites para conter uso de memória e profundidade:
+`new/1` accepts limits to bound memory usage and nesting depth:
 
 ```elixir
 ExJS.new(
@@ -120,43 +119,43 @@ ExJS.new(
 )
 ```
 
-Ao exceder um limite, a operação retorna um átomo específico:
-`:max_depth_exceeded`, `:collection_too_large`, `:string_too_large` ou
+When a limit is exceeded, the operation returns a specific atom:
+`:max_depth_exceeded`, `:collection_too_large`, `:string_too_large` or
 `:source_too_large`.
 
-### Erros
+### Errors
 
-Exceções JavaScript retornam:
+JavaScript exceptions return:
 
 ```elixir
 {:error, %{name: "TypeError", message: "boom"}}
 ```
 
-Erros de sintaxe retornam `name: "SyntaxError"` com a mensagem e a posição.
-Erros de uso do contexto retornam átomos como `:context_closed`,
+Syntax errors return `name: "SyntaxError"` with the message and position.
+Context usage errors return atoms such as `:context_closed`,
 `:context_already_closed`, `:not_owner`, `:not_found`, `:not_callable`,
-`:invalid_bindings` e `:unsupported_binding_value`.
+`:invalid_bindings` and `:unsupported_binding_value`.
 
-## Compatibilidade
+## Compatibility
 
-| Item | Versão |
+| Item | Version |
 | --- | --- |
 | Elixir | 1.19+ |
 | OTP | 28+ |
 | Zig | 0.17.x |
-| Plataforma | Linux x86_64 |
+| Platform | Linux x86_64 |
 
-Outras plataformas ainda não são validadas.
+Other platforms are not validated yet.
 
 ## Build
 
-Requisitos:
+Requirements:
 
 - Elixir/OTP 28+
 - Zig 0.17.x
 
-O código-fonte do Kiesel já vem vendorizado em
-`native/ex_js_nif/vendor/kiesel`, então não é necessário configurar caminhos:
+The Kiesel source is vendored in `native/ex_js_nif/vendor/kiesel`, so no path
+configuration is needed:
 
 ```bash
 mix deps.get
@@ -164,77 +163,79 @@ mix compile
 mix test
 ```
 
-Para desenvolver contra um checkout local do Kiesel:
+To develop against a local Kiesel checkout:
 
 ```bash
-export KIESEL_PATH=/caminho/para/kiesel
+export KIESEL_PATH=/path/to/kiesel
 mix compile
 ```
 
-Para atualizar o Kiesel vendorizado:
+To update the vendored Kiesel:
 
 ```bash
-mix ex_js.vendor.update --ref <tag-ou-commit>
+mix ex_js.vendor.update --ref <tag-or-commit>
 ```
 
-O NIF é compilado com `enable-intl=false` e `enable-temporal=false` para não
-exigir Rust/cargo. `libregexp` é embutido a partir das fontes do QuickJS
-baixadas como dependência Zig, e o garbage collector do Kiesel (BDWGC) é
-habilitado.
+The NIF is built with `enable-intl=false` and `enable-temporal=false` so no
+Rust/cargo is required. `libregexp` is embedded from the QuickJS sources
+fetched as a Zig dependency, and Kiesel's garbage collector (BDWGC) is
+enabled.
 
-O binário final é instalado em `priv/libex_js_nif.so`.
+The final binaries are installed in `priv/libex_js_nif.so` and
+`priv/ex_js_runner`.
 
-### Testes de stress e benchmark
+### Stress tests and benchmark
 
 ```bash
-# Testes normais (stress excluído)
+# Regular tests (stress excluded)
 mix test
 
-# Inclui os testes de stress (500 contextos, concorrência, GC, Unicode/RegExp)
+# Includes stress tests (500 contexts, concurrency, GC, Unicode/RegExp)
 mix test --include stress
 
 # Benchmark
 mix run bench/bench.exs
 ```
 
-Para um build com ASan/UBSan (desenvolvimento):
+For an ASan/UBSan build (development only):
 
 ```bash
 cd native/ex_js_nif
 zig build -Doptimize=Debug -Dsanitize=true
 ```
 
-### Memória e concorrência
+### Memory and concurrency
 
-- O `Agent`/runtime do Kiesel fica no heap do BDWGC, não no heap da BEAM, para
-  que o GC do Kiesel consiga rastrear os objetos JavaScript.
-- Cada thread do BEAM que entra no NIF é registrada no BDWGC na primeira
-  chamada.
-- `eval`, `set`, `get` e `call` rodam como dirty CPU NIFs: scripts longos não
-  bloqueiam os schedulers normais do BEAM, mas ainda podem ocupar dirty
-  schedulers.
-- O Kiesel mantém parte de estado global (por exemplo, a plataforma usada na
-  formatação de `Date`). Por isso as operações do engine são serializadas por
-  um mutex global, mesmo com contexts independentes. O isolamento de estado
-  por contexto continua existindo; a execução de JS entre contexts é
-  sequencial.
-- Cada contexto tem seu próprio estado e pertence ao processo que o criou.
+- Kiesel's `Agent`/runtime lives in BDWGC memory, not BEAM memory, so
+  Kiesel's GC can trace JavaScript objects.
+- Every BEAM thread that enters the NIF registers itself with BDWGC on first
+  use.
+- `eval`, `set`, `get`, `call`, `delete`, `keys` and `call_path` run as dirty
+  CPU NIFs: long scripts do not block normal BEAM schedulers, but can still
+  occupy dirty schedulers.
+- Kiesel keeps some process-global state (for example the platform used to
+  format `Date`). Because of that, engine operations are serialized by a
+  global mutex, even across independent contexts. Per-context state isolation
+  still exists; JavaScript execution across contexts is sequential.
+- In `:isolated` mode, each context is a separate OS process; timeouts kill
+  the process.
+- Each context belongs to the process that created it.
 
-## Limitações (v0.3)
+## Limitations (v0.3)
 
-- **`:embedded` exige código confiável.** Não há timeout nem interrupção
-  cooperativa; um loop infinito ocupa um dirty scheduler indefinidamente.
-  Use `mode: :isolated` para código não confiável.
-- **Sem módulos ES no modo isolado.**
-- **Sem resolução de módulos no filesystem.** Imports usam apenas o registry
-  em memória (`put_module/3`).
-- `call/3` e `put_module/3` aceitam apenas nomes simples; use `call_path/3`
-  para caminhos.
-- Um contexto pertence ao processo que o criou; outros processos recebem
+- **`:embedded` requires trusted code.** There is no timeout or cooperative
+  interruption; an infinite loop occupies a dirty scheduler indefinitely.
+  Use `mode: :isolated` for untrusted code.
+- **No ES modules in isolated mode.**
+- **No filesystem module resolution.** Imports use only the in-memory
+  registry (`put_module/3`).
+- `call/3` and `put_module/3` accept simple names only; use `call_path/3` for
+  paths.
+- A context belongs to the process that created it; other processes receive
   `{:error, :not_owner}`.
-- Plataforma alvo inicial: Linux x86_64.
+- Initial target platform: Linux x86_64.
 
-## Licença
+## License
 
-MIT. O Kiesel vendorizado também é MIT; veja
+MIT. The vendored Kiesel is also MIT; see
 `native/ex_js_nif/vendor/kiesel/LICENSE`.
